@@ -1,0 +1,12 @@
+[package]
+name = "particle_simulation"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+speedy2d = "1.10.0"
+rand = "0.8.5"
+
+nalgebra = "0.32.1"
