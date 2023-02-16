@@ -10,3 +10,4 @@ speedy2d = "1.10.0"
 rand = "0.8.5"
 
 nalgebra = "0.32.1"
+cpu-time = "1.0.0"
