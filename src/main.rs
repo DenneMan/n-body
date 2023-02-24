@@ -96,16 +96,14 @@ impl Boundary {
     }
 }
 
-struct QuadTree<T>
-    where T: Copy {
-    children: Option<Box<[QuadTree<T>; 4]>>,
+struct QuadTree {
+    children: Option<Box<[QuadTree; 4]>>,
     positions: Vec<Point2<f32>>,
-    data: Vec<T>,
+    data: Vec<usize>,
     boundary: Boundary
 }
 
-impl<T> QuadTree<T>
-where T: Copy {
+impl QuadTree {
     fn new(boundary: Boundary) -> Self {
         QuadTree { 
             children: None, 
@@ -115,7 +113,7 @@ where T: Copy {
         }
     }
 
-    fn insert(&mut self, position: Point2<f32>, data: T) { // fix issue when position already in tree
+    fn insert(&mut self, position: Point2<f32>, data: usize) { // fix issue when position already in tree
         if self.data.len() == 16 {
             self.split();
             let children = self.children.as_mut().unwrap();
@@ -164,7 +162,7 @@ where T: Copy {
         ]))
     }
 
-    fn query(&mut self, boundary: Boundary, others: &mut Vec<T>) {
+    fn query(&mut self, boundary: Boundary, others: &mut Vec<usize>) {
         if let Some(children) = self.children.as_mut() {
             for i in 0..4 {
                 if children[i].boundary.intersects(boundary) {
@@ -204,6 +202,38 @@ where T: Copy {
     }
 }
 
+struct Grid {
+    width: usize,
+    height: usize,
+    boundary: Boundary,
+    data: Vec<Vec<usize>>,
+}
+
+impl Grid {
+    fn new(width: usize, height: usize, boundary: Boundary) -> Self {
+        Self {
+            width,
+            height,
+            boundary,
+            data: vec![Vec::new(); width * height],
+        }
+    }
+
+    fn get(&self, x: f32, y: f32) -> Vec<usize> {
+        let xi = ((x - self.boundary.x) / self.boundary.w * self.width  as f32).floor() as usize;
+        let yi = ((y - self.boundary.y) / self.boundary.h * self.height as f32).floor() as usize;
+
+        self.data[xi + yi * self.width].clone()
+    }
+
+    fn get_adj(&self, x: f32, y: f32) -> Vec<usize> {
+        let mut result = Vec::new();
+        (-1..=1).flat_map(|i| {(-1..=1).map(move |j| {(i, j)})})
+            .for_each(|(i, j)| {result.append(&mut self.get(x, y))});
+
+        result
+    }
+}
 
 struct ParticleSimulation {
     particles: Vec<Particle>,
