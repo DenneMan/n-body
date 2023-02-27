@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::f32::consts::PI;
-use std::mem::MaybeUninit;
 
 use rand::rngs::ThreadRng;
 use speedy2d::color::Color;
@@ -14,9 +13,11 @@ use nalgebra::{Point2, Vector2};
 
 use std::time::{Instant, Duration};
 
+const RADIUS: f32 = 5.0;
+
 fn main() {
-    const WIDTH: u32 = 1024;
-    const HEIGHT: u32 = 1024;
+    const WIDTH: u32 = 1000;
+    const HEIGHT: u32 = 1000;
 
     let window = Window::new_with_options(
         "Wow", 
@@ -48,7 +49,7 @@ impl Particle {
             mass: 1.0,
             drag: 0.1,
 
-            radius: 50.0,
+            radius: RADIUS,
         }
     }
 
@@ -219,6 +220,13 @@ impl Grid {
         }
     }
 
+    fn insert(&mut self, x: f32, y: f32, data: usize) {
+        let xi = (((x - self.boundary.x) / self.boundary.w) * self.width  as f32).floor() as usize;
+        let yi = (((y - self.boundary.y) / self.boundary.h) * self.height as f32).floor() as usize;
+
+        self.data[xi + yi * self.width].push(data);
+    }
+
     fn get(&self, x: f32, y: f32) -> Vec<usize> {
         let xi = ((x - self.boundary.x) / self.boundary.w * self.width  as f32).floor() as usize;
         let yi = ((y - self.boundary.y) / self.boundary.h * self.height as f32).floor() as usize;
@@ -226,10 +234,20 @@ impl Grid {
         self.data[xi + yi * self.width].clone()
     }
 
+    fn index(&self, x: usize, y: usize) -> Vec<usize> {
+        if x + y * self.width > self.width * self.height {
+            println!("AAAAH");
+        }
+        self.data[x + y * self.width].clone()
+    }
+
     fn get_adj(&self, x: f32, y: f32) -> Vec<usize> {
+        let xi = ((x - self.boundary.x) / self.boundary.w * self.width  as f32).floor() as i32;
+        let yi = ((y - self.boundary.y) / self.boundary.h * self.height as f32).floor() as i32;
+
         let mut result = Vec::new();
         (-1..=1).flat_map(|i| {(-1..=1).map(move |j| {(i, j)})})
-            .for_each(|(i, j)| {result.append(&mut self.get(x, y))});
+            .for_each(|(i, j)| {result.append(&mut self.index((xi + i) as usize, (yi + j) as usize))});
 
         result
     }
@@ -238,7 +256,6 @@ impl Grid {
 struct ParticleSimulation {
     particles: Vec<Particle>,
     boundary: Boundary,
-    rng: ThreadRng,
 }
 
 impl ParticleSimulation {
@@ -246,7 +263,6 @@ impl ParticleSimulation {
         ParticleSimulation {
             particles: Vec::new(),
             boundary: Boundary::new(x, y, w, h),
-            rng: rand::thread_rng(),
         }
     }
 
@@ -259,28 +275,7 @@ impl ParticleSimulation {
     
             self.bound();
 
-            let mut quad_tree = QuadTree::new(self.boundary);
-            self.particles.iter().enumerate().for_each(|(i, particle)| {
-                quad_tree.insert(particle.pos, i);
-            });
-
-            for i in 0..self.particles.len() {
-                let pos = self.particles[i].pos;
-                let radius = self.particles[i].radius;
-
-                let mut others = Vec::new();
-                quad_tree.query(Boundary::new(pos.x - radius * 2.0, pos.y - radius * 2.0, radius * 4.0, radius * 4.0), &mut others);
-
-
-                for j in others {
-                    if i == j { continue; }
-
-                    let diff: Vector2<f32> = self.particles[j].pos - pos;
-                    if diff.norm_squared() < (radius + radius) * (radius + radius) {
-                        self.resolve(i, j);
-                    } 
-                }
-            }
+            self.collide2();
         }
     }
 
@@ -345,13 +340,52 @@ impl ParticleSimulation {
         })
     }
 
-    fn collide(&mut self) {
+    fn collide1(&mut self) {
+        let mut quad_tree = QuadTree::new(self.boundary);
+        self.particles.iter().enumerate().for_each(|(i, particle)| {
+            quad_tree.insert(particle.pos, i);
+        });
+
         for i in 0..self.particles.len() {
-            for j in 0..i {
-                let difference: Vector2<f32> = self.particles[i].pos - self.particles[j].pos;
-                let distance_sq = difference.norm_squared();
-                let distance_min = self.particles[j].radius + self.particles[i].radius;
-                if distance_sq < distance_min * distance_min {
+            let pos = self.particles[i].pos;
+            let radius = self.particles[i].radius;
+
+            let mut others = Vec::new();
+            quad_tree.query(Boundary::new(pos.x - radius * 2.0, pos.y - radius * 2.0, radius * 4.0, radius * 4.0), &mut others);
+
+
+            for j in others {
+                if i == j { continue; }
+
+                let diff: Vector2<f32> = self.particles[j].pos - pos;
+                if diff.norm_squared() < (radius + radius) * (radius + radius) {
+                    self.resolve(i, j);
+                }
+            }
+        }
+    }
+
+    fn collide2(&mut self) {
+        let width = (self.boundary.w / (2.0 * RADIUS)).floor() as usize;
+        let height = (self.boundary.h / (2.0 * RADIUS)).floor() as usize;
+
+        let mut grid = Grid::new(width, height, self.boundary);
+        self.particles.iter().enumerate().for_each(|(i, particle)| {
+            grid.insert(particle.pos.x, particle.pos.y, i);
+        });
+
+
+        for i in 0..self.particles.len() {
+            let pos = self.particles[i].pos;
+            let radius = self.particles[i].radius;
+
+            let others = grid.get_adj(pos.x, pos.y);
+            
+            for j in others {
+                if i == j { continue; }
+
+                let diff: Vector2<f32> = self.particles[j].pos - pos;
+                if diff.norm_squared() < (radius + radius) * (radius + radius) {
                     self.resolve(i, j);
                 }
             }
@@ -362,8 +396,9 @@ impl ParticleSimulation {
 impl WindowHandler for ParticleSimulation {
     fn on_draw(&mut self, helper: &mut WindowHelper, graphics: &mut Graphics2D) {
 
-        let dt = 0.01;
+        let dt = 0.03;
         let radius = 2.0;
+
         self.particles.push(Particle {
             pos: Point2::new(25.0, self.boundary.h - 25.0),
             vel: Vector2::new(75.0, 0.0),
