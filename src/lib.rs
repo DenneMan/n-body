@@ -1,101 +1,70 @@
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
-use speedy2d::color::Color;
-use speedy2d::shape::Rectangle;
-use speedy2d::{Graphics2D, Window};
-use speedy2d::window::{WindowHandler, WindowHelper, WindowCreationOptions, WindowSize, WindowPosition};
-
-use nalgebra::{Point2, Vector2};
-
-use std::time::Instant;
-
-const RADIUS: f32 = 2.0;
-const WIDTH: u32 = 1000;
-const HEIGHT: u32 = 1000;
-
-fn main() {
-    let window = Window::new_with_options(
-        "Wow", 
-        WindowCreationOptions::new_windowed(
-            WindowSize::PhysicalPixels((WIDTH, HEIGHT).into()), 
-            Some(WindowPosition::Center)
-        ).with_resizable(false)).unwrap();
-    window.run_loop(ParticleSimulation::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32));
-}
+use nalgebra::{Point3, Vector3};
 
 struct Particle {
-    pos: Point2<f32>,
-    vel: Vector2<f32>,
-    acc: Vector2<f32>,
+    pos: Point3<f32>,
+    vel: Vector3<f32>,
+    acc: Vector3<f32>,
 
     mass: f32,
-    drag: f32,
-
     radius: f32,
 }
 
 impl Particle {
-    fn new(x: f32, y: f32) -> Self {
+    fn new(pos: Point3<f32>, vel: Vector3<f32>, mass: f32, radius: f32) -> Self {
         Particle {
-            pos: Point2::new(x, y),
-            vel: Vector2::new(0.0, 0.0),
-            acc: Vector2::new(0.0, 0.0),
+            pos,
+            vel,
+            acc: Vector3::new(0.0, 0.0, 0.0),
 
-            mass: 1.0,
-            drag: 0.1,
-
-            radius: RADIUS,
+            mass,
+            radius,
         }
     }
 
     fn update(&mut self, dt: f32) {
-        let new_pos: Point2<f32> = self.pos + self.vel*dt + self.acc*(dt*dt*0.5);
-        let new_acc: Vector2<f32> = self.apply_forces(); // only needed if acceleration is not constant
-        let new_vel: Vector2<f32> = self.vel + (self.acc+new_acc)*(dt*0.5);
+        let new_pos: Point3<f32> = self.pos + self.vel*dt + self.acc*(dt*dt*0.5);
+        let new_acc: Vector3<f32> = self.apply_forces(); // only needed if acceleration is not constant
+        let new_vel: Vector3<f32> = self.vel + (self.acc+new_acc)*(dt*0.5);
         self.pos = new_pos;
         self.vel = new_vel;
         self.acc = new_acc;
     }
 
-    fn apply_forces(&mut self) -> Vector2<f32> {
-        let grav_acc = Vector2::new(0.0, -9.81); // 9.81 m/s² down in the z-axis
-        let drag_force: Vector2<f32> = 0.5 * self.drag * self.vel * self.vel.magnitude(); // D = 0.5 * (rho * C * Area * vel^2)
-        let drag_acc: Vector2<f32> = drag_force / self.mass; // a = F/m
-        return grav_acc - drag_acc;
+    fn apply_forces(&mut self) -> Vector3<f32> {
+        let grav_acc = Vector3::new(0.0, -9.81, 0.0); // 9.81 m/s² down in the z-axis
+        return grav_acc;
     }
 }
 
-#[derive(Clone, Copy)]
-struct Boundary {
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
+#[derive(Debug, Clone, Copy)]
+pub struct Boundary {
+    pub min: Point3<f32>,
+    pub max: Point3<f32>,
 }
 
 impl Boundary {
-    fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
+    pub fn new(min: Point3<f32>, max: Point3<f32>) -> Self {
         Self {
-            x,
-            y,
-            w,
-            h,
+            min, 
+            max,
         }
     }
 
-    fn contains(&self, position: Point2<f32>) -> bool {
-        position.x >= self.x && position.y >= self.y && position.x < self.x + self.w && position.y < self.y + self.h
+    pub fn contains(&self, position: Point3<f32>) -> bool {
+        position >= self.min && position <= self.max
     }
 
-    fn intersects(&self, other: Self) -> bool {
-        !(self.x >= other.x + other.w || self.x + self.w < other.x || self.y >= other.y + other.h || self.y + self.h < other.y)
+    pub fn intersects(&self, other: Self) -> bool {
+        self.min <= other.max && self.max >= other.min
     }
 }
 
-struct QuadTree {
+/* struct QuadTree {
     children: Option<Box<[QuadTree; 4]>>,
-    positions: Vec<Point2<f32>>,
+    positions: Vec<Point3<f32>>,
     data: Vec<usize>,
     boundary: Boundary
 }
@@ -197,36 +166,126 @@ impl QuadTree {
             }
         }
     }
+} */
+
+// Barnes-Hut octree implementation
+#[derive(Debug)]
+pub struct Octree {
+    children: Vec<Octree>,
+    center_of_mass: Point3<f32>,
+    total_mass: f32,
+    boundary: Boundary,
 }
+
+impl Octree {
+    pub fn new(boundary: Boundary) -> Self {
+        Self {
+            children: Vec::new(),
+            center_of_mass: Point3::origin(),
+            total_mass: 0.0,
+            boundary
+        }
+    }
+
+    fn is_leaf(&self) -> bool {
+        self.children.len() == 0
+    }
+
+    fn is_empty(&self) -> bool {
+        self.total_mass == 0.0
+    }
+
+    fn subdivide(&mut self) {
+        let min: Point3<f32> = self.boundary.min;
+        let max: Point3<f32> = self.boundary.max;
+        let ctr: Point3<f32> = nalgebra::center(&min, &max);
+        self.children.push(Octree::new(Boundary::new(Point3::new(min.x, min.y, min.z), Point3::new(ctr.x, ctr.y, ctr.z))));
+        self.children.push(Octree::new(Boundary::new(Point3::new(ctr.x, min.y, min.z), Point3::new(max.x, ctr.y, ctr.z))));
+        self.children.push(Octree::new(Boundary::new(Point3::new(min.x, ctr.y, min.z), Point3::new(ctr.x, max.y, ctr.z))));
+        self.children.push(Octree::new(Boundary::new(Point3::new(ctr.x, ctr.y, min.z), Point3::new(max.x, max.y, ctr.z))));
+        self.children.push(Octree::new(Boundary::new(Point3::new(ctr.x, min.y, ctr.z), Point3::new(max.x, ctr.y, max.z))));
+        self.children.push(Octree::new(Boundary::new(Point3::new(min.x, ctr.y, ctr.z), Point3::new(ctr.x, max.y, max.z))));
+        self.children.push(Octree::new(Boundary::new(Point3::new(ctr.x, ctr.y, ctr.z), Point3::new(max.x, max.y, max.z))));
+        self.children.push(Octree::new(Boundary::new(Point3::new(ctr.x, ctr.y, ctr.z), Point3::new(max.x, max.y, max.z))));
+    }
+
+    pub fn insert(&mut self, position: Point3<f32>, mass: f32) {
+
+        if self.is_empty() {
+            self.center_of_mass = position;
+            self.total_mass = mass;
+
+            return;
+        }
+
+        if self.is_leaf() && !self.is_empty() {
+            if position == self.center_of_mass {
+                panic!("Adding duplicate point results in infinite octree.")
+            }
+
+            self.subdivide();
+
+            for child in self.children.iter_mut() {
+                if child.boundary.contains(self.center_of_mass) {
+                    child.insert(self.center_of_mass, self.total_mass);
+                }
+                if child.boundary.contains(position) {
+                    child.insert(position, mass);
+                }
+            }
+            
+            self.center_of_mass = (self.center_of_mass * self.total_mass + Vector3::from(position.coords) * mass) / (self.total_mass + mass);
+            self.total_mass += mass;
+
+            return;
+        }
+
+        if !self.is_leaf() {
+            self.children.iter_mut()
+                .find(|child| {
+                    child.boundary.contains(position)
+                }).unwrap() // Error if somehow no child contains the position
+                .insert(position, mass);
+
+            self.center_of_mass = (self.center_of_mass * self.total_mass + Vector3::from(position.coords) * mass) / (self.total_mass + mass);
+            self.total_mass += mass;
+
+            return;
+        }
+
+    }
+}
+
 
 struct ParticleSimulation {
     particles: Vec<Particle>,
     boundary: Boundary,
-
-    last_frame_end: Instant,
-    time: f32,
 }
 
 impl ParticleSimulation {
-    fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
+    fn new() -> Self {
         ParticleSimulation {
             particles: Vec::new(),
-            boundary: Boundary::new(x, y, w, h),
-            last_frame_end: Instant::now(),
-            time: 0.0,
+            boundary: Boundary::new(Point3::origin(), Point3::origin()),
         }
     }
 
     fn update(&mut self, dt: f32, substeps: u32) {
         let dt = dt / substeps as f32;
         for _ in 0..substeps {
+
             self.particles.iter_mut().for_each(|particle| {
                 particle.update(dt);
-            });
-    
-            self.bound();
 
-            self.collide();
+                self.boundary.min.x = self.boundary.min.x.min(particle.pos.x);
+                self.boundary.min.y = self.boundary.min.y.min(particle.pos.y);
+                self.boundary.min.z = self.boundary.min.z.min(particle.pos.z);
+                self.boundary.max.x = self.boundary.max.x.max(particle.pos.x);
+                self.boundary.max.y = self.boundary.max.y.max(particle.pos.y);
+                self.boundary.max.z = self.boundary.max.z.max(particle.pos.z);
+            });
+
+            //self.collide();
         }
     }
 
@@ -234,16 +293,16 @@ impl ParticleSimulation {
         let p1 = &self.particles[i];
         let p2 = &self.particles[j];
 
-        let difference: Vector2<f32> = p1.pos - p2.pos;
+        let difference: Vector3<f32> = p1.pos - p2.pos;
         let distance_sq = difference.norm_squared();
 
         let distance_min = p1.radius + p2.radius;
 
         let distance = distance_sq.sqrt();
-        let normal: Vector2<f32> = difference / distance;
+        let normal: Vector3<f32> = difference / distance;
 
-        let v1: Vector2<f32> = p1.vel;
-        let v2: Vector2<f32> = p2.vel;
+        let v1: Vector3<f32> = p1.vel;
+        let v2: Vector3<f32> = p2.vel;
         let m1 = p1.mass;
         let m2 = p2.mass;
         let t1 = m2 / (m1 + m2);
@@ -255,42 +314,7 @@ impl ParticleSimulation {
         self.particles[j].vel += (2.0 * t2 * ((v1 - v2).dot(&difference) / distance_sq) * difference) * 0.5;
     }
 
-    fn render(&mut self, helper: &mut WindowHelper, graphics: &mut Graphics2D) {
-        graphics.clear_screen(Color::from_rgb(0.0, 0.0, 0.0));
-        //let mut quad_tree = QuadTree::new(self.boundary);
-        //self.particles.iter().for_each(|particle| {
-        //    quad_tree.insert(particle.pos, 0);
-        //});
-        //quad_tree.render(helper, graphics, self.boundary.h);
-
-        self.particles.iter().for_each(|particle| {
-            graphics.draw_circle((particle.pos.x, self.boundary.h - particle.pos.y), particle.radius, Color::WHITE);
-        });
-
-        helper.request_redraw();
-    }
-
-    fn bound(&mut self) {
-        self.particles.iter_mut().for_each(|particle| {
-            if particle.pos.x < self.boundary.x + particle.radius {
-                particle.pos.x = self.boundary.x + particle.radius;
-                particle.vel.x *= -0.1;
-            }
-            if particle.pos.x > self.boundary.x + self.boundary.w - particle.radius {
-                particle.pos.x = self.boundary.x + self.boundary.w - particle.radius;
-                particle.vel.x *= -0.1;
-            }
-            if particle.pos.y < self.boundary.y + particle.radius {
-                particle.pos.y = self.boundary.y + particle.radius;
-                particle.vel.y *= -0.1;
-            }
-            if particle.pos.y > self.boundary.y + self.boundary.h - particle.radius {
-                particle.pos.y = self.boundary.y + self.boundary.h - particle.radius;
-                particle.vel.y *= -0.1;
-            }
-        })
-    }
-
+    /* Does not work due to query requiering both radii
     fn collide(&mut self) {
         let mut quad_tree = QuadTree::new(self.boundary);
         self.particles.iter().enumerate().for_each(|(i, particle)| {
@@ -298,9 +322,11 @@ impl ParticleSimulation {
         });
 
         for i in 0..self.particles.len() {
-            let pos: Point2<f32> = self.particles[i].pos;
+            let pos: Point3<f32> = self.particles[i].pos;
+            let radius = self.particles[i].radius;
 
             let mut others = Vec::new();
+            let query = Boundary::new(pos - Vector3::<f32>::new(radius * 2.0))
             quad_tree.query(Boundary::new(pos.x - RADIUS * 2.0, pos.y - RADIUS * 2.0, RADIUS * 4.0, RADIUS * 4.0), &mut others);
 
 
@@ -308,16 +334,38 @@ impl ParticleSimulation {
                 if i == j { continue; }
                 if self.particles[j].pos == pos { continue; } 
 
-                let diff: Vector2<f32> = self.particles[j].pos - pos;
+                let diff: Vector3<f32> = self.particles[j].pos - pos;
                 if diff.norm_squared() < (RADIUS + RADIUS) * (RADIUS + RADIUS) {
                     self.resolve(i, j);
                 }
             }
         }
+    } */
+}
+
+/* Old render system
+
+struct MyWindow {
+    sim: ParticleSimulation,
+    boundary: Boundary,
+
+    last_frame_end: Instant,
+    time: f32,
+}
+
+impl MyWindow {
+    fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
+        Self {
+            sim: ParticleSimulation::new(),
+            boundary: Boundary::new(x, y, w, h),
+
+            last_frame_end: Instant::now(),
+            time: 0.0,
+        }
     }
 }
 
-impl WindowHandler for ParticleSimulation {
+impl WindowHandler for MyWindow {
     fn on_draw(&mut self, helper: &mut WindowHelper, graphics: &mut Graphics2D) {
         let begin_frame = Instant::now();
 
@@ -327,10 +375,10 @@ impl WindowHandler for ParticleSimulation {
 
         if self.time > 0.0 {
             self.time = 0.0;
-            self.particles.push(Particle {
-                pos: Point2::new(25.0, self.boundary.h - 25.0),
-                vel: Vector2::new(75.0, 0.0),
-                acc: Vector2::zeros(),
+            self.sim.particles.push(Particle {
+                pos: Point3::new(25.0, self.boundary.h - 25.0, 0.0),
+                vel: Vector3::new(75.0, 0.0, 0.0),
+                acc: Vector3::zeros(),
                 mass: PI * RADIUS * RADIUS,
                 drag: 0.0,
                 radius: RADIUS,
@@ -338,18 +386,31 @@ impl WindowHandler for ParticleSimulation {
         }
 
         let now = Instant::now();
-        self.update(dt, 8);
+        self.sim.update(dt, 8);
         let physics_time = now.elapsed();
-        println!("Render: {:?}ms, Update: {:?}ms, n: {}", (begin_frame - self.last_frame_end).as_millis(), physics_time.as_millis(), self.particles.len());
+        println!("Render: {:?}ms, Update: {:?}ms, n: {}", (begin_frame - self.last_frame_end).as_millis(), physics_time.as_millis(), self.sim.particles.len());
 
-        self.render(helper, graphics);
+        { // Render: 
+            graphics.clear_screen(Color::from_rgb(0.0, 0.0, 0.0));
+            //let mut quad_tree = QuadTree::new(self.boundary);
+            //self.particles.iter().for_each(|particle| {
+            //    quad_tree.insert(particle.pos, 0);
+            //});
+            //quad_tree.render(helper, graphics, self.boundary.h);
+
+            self.sim.particles.iter().for_each(|particle| {
+                graphics.draw_circle((particle.pos.x, self.boundary.h - particle.pos.y), particle.radius, Color::WHITE);
+            });
+
+            helper.request_redraw();
+        }
 
         let mut energy = 0.0;
-        self.particles.iter().for_each(|particle| {
+        self.sim.particles.iter().for_each(|particle| {
             energy += particle.mass * 9.81 * particle.pos.y;
             energy += particle.mass * particle.vel.norm_squared() * 0.5
         });
 
         self.last_frame_end = Instant::now();
     }
-}
+} */
