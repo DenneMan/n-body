@@ -17,3 +17,7 @@ rand = "0.8.5"
 
 nalgebra = "0.32.1"
 cpu-time = "1.0.0"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true

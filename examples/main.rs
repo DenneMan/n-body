@@ -1,4 +1,4 @@
-use std::f32::consts::{TAU, PI};
+use std::{f64::consts::{TAU, PI}, time::Instant};
 
 use n_body::{World, Boundary, Body};
 use nalgebra::{Point2, Vector2};
@@ -42,22 +42,34 @@ fn main() {
     ).unwrap();
 
     let mut world = World::new();
-    const N: u32 = 30;
+
+    let radius = 5.0;
+    world.insert(Body::new(
+        Point2::origin(),
+        Vector2::zeros(),
+        radius * radius * radius * 100.0,
+        radius,
+    ));
+
+    const N: u32 = 300;
     let mut rng = rand::thread_rng();
     for i in 0..N {
-        let i = i as f32;
-        let n = N as f32;
+        let i = i as f64;
+        let n = N as f64;
 
-        let radius = rng.gen_range(1.0..5.0);
+        let mut radius = rng.gen_range(0.5..1.0);
+        radius *= radius;
         world.insert(Body::new(
-            Point2::new((TAU / n * i).sin(), (TAU / n * i).cos()) * 50.0,
-            Vector2::new((TAU / n * i + PI / 2.0).sin(), (TAU / n * i + PI / 2.0).cos()) * 0.1,
+            Point2::new((TAU / n * i).sin(), (TAU / n * i).cos()) * 75.0,
+            Vector2::new((TAU / n * i + PI / 2.0).sin(), (TAU / n * i + PI / 2.0).cos()) * 10.0,
             radius * radius * radius,
             radius,
         ));
     }
+
     event_loop.run(move |event, _, control_flow| {
         if input.update(&event) {
+            let full = Instant::now();
             if input.key_pressed(VirtualKeyCode::Escape) || input.close_requested() || input.destroyed() {
                 *control_flow = ControlFlow::Exit;
                 return;
@@ -67,29 +79,34 @@ fn main() {
                 println!("{}", world.total_energy());
             }
 
-            world.update_substeps(0.01, 16);
+            let now = Instant::now();
+            world.update_substeps(0.1, 8);
+            println!("Update: {:?}", now.elapsed());
 
             let frame = pixels.get_frame_mut();
 
-            for y in 0..HEIGHT {
-                for x in 0..WIDTH {
-                    set_pixel(x, y, 0x000000ff, frame)
-                }
-            }
+            let now = Instant::now();
+            frame.fill(0x00);
+            println!("Clear: {:?}", now.elapsed());
 
+            let now = Instant::now();
             let boundary = world.calculate_boundary().pad(5.0);
             draw_particles(&world, frame, boundary);
+            println!("Draw: {:?}", now.elapsed());
+
             if let Err(err) = pixels.render() {
                 error!("pixels.render() failed: {}", err);
                 *control_flow = ControlFlow::Exit;
                 return;
             }
+
+            println!("Full: {:?}", full.elapsed());
         }
     });
 }
 
 fn draw_particles(world: &World, frame: &mut [u8], boundary: Boundary) {
-    let screen_boundary = Boundary::new(Point2::new(0.0, 0.0), Point2::new(WIDTH as f32, HEIGHT as f32));
+    let screen_boundary = Boundary::new(Point2::new(0.0, 0.0), Point2::new(WIDTH as f64, HEIGHT as f64));
 
     world.bodies.iter().filter(|&body| {
         boundary.contains(body.pos)
@@ -100,7 +117,7 @@ fn draw_particles(world: &World, frame: &mut [u8], boundary: Boundary) {
     });
 }
 
-fn draw_circle(x: usize, y: usize, r: f32, color: u32, fill: bool, frame: &mut [u8]) {
+fn draw_circle(x: usize, y: usize, r: f64, color: u32, fill: bool, frame: &mut [u8]) {
     fn not_filled(x: usize, y: usize, i: usize, j: usize, color: u32, frame: &mut [u8]) {
         set_pixel(x + i, y + j, color, frame);
         set_pixel(x + i, y - j, color, frame);

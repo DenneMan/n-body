@@ -2,16 +2,16 @@ use nalgebra::{Point2, Vector2};
 
 #[derive(Default)]
 pub struct Body {
-    pub pos: Point2<f32>,
-    pub vel: Vector2<f32>,
-    pub acc: Vector2<f32>,
+    pub pos: Point2<f64>,
+    pub vel: Vector2<f64>,
+    pub acc: Vector2<f64>,
 
-    pub mass: f32,
-    pub radius: f32,
+    pub mass: f64,
+    pub radius: f64,
 }
 
 impl Body {
-    pub fn new(pos: Point2<f32>, vel: Vector2<f32>, mass: f32, radius: f32) -> Self {
+    pub fn new(pos: Point2<f64>, vel: Vector2<f64>, mass: f64, radius: f64) -> Self {
         Self {
             pos,
             vel,
@@ -22,10 +22,10 @@ impl Body {
         }
     }
 
-    pub fn update(&mut self, dt: f32, acc: Vector2<f32>) {
-        let new_pos: Point2<f32> = self.pos + self.vel*dt + self.acc*(dt*dt*0.5);
-        let new_acc: Vector2<f32> = acc;
-        let new_vel: Vector2<f32> = self.vel + (self.acc+new_acc)*(dt*0.5);
+    pub fn update(&mut self, dt: f64, acc: Vector2<f64>) {
+        let new_pos: Point2<f64> = self.pos + self.vel*dt + self.acc*(dt*dt*0.5);
+        let new_acc: Vector2<f64> = acc;
+        let new_vel: Vector2<f64> = self.vel + (self.acc+new_acc)*(dt*0.5);
         self.pos = new_pos;
         self.vel = new_vel;
         self.acc = new_acc;
@@ -34,19 +34,19 @@ impl Body {
 
 #[derive(Debug)]
 pub struct Boundary {
-    pub min: Point2<f32>,
-    pub max: Point2<f32>,
+    pub min: Point2<f64>,
+    pub max: Point2<f64>,
 }
 
 impl Boundary {
-    pub fn new(min: Point2<f32>, max: Point2<f32>) -> Self {
+    pub fn new(min: Point2<f64>, max: Point2<f64>) -> Self {
         Self {
             min, 
             max,
         }
     }
 
-    pub fn contains(&self, position: Point2<f32>) -> bool {
+    pub fn contains(&self, position: Point2<f64>) -> bool {
         position >= self.min && position <= self.max
     }
 
@@ -54,27 +54,27 @@ impl Boundary {
         self.min <= other.max && self.max >= other.min
     }
 
-    pub fn width(&self) -> f32 {
+    pub fn width(&self) -> f64 {
         self.max.x - self.min.x
     }
 
-    pub fn height(&self) -> f32 {
+    pub fn height(&self) -> f64 {
         self.max.y - self.min.y
     }
 
-    pub fn size(&self) -> Vector2<f32> {
+    pub fn size(&self) -> Vector2<f64> {
         self.max - self.min
     }
 
-    pub fn map_point(&self, point: Point2<f32>, to: &Self) -> Point2<f32> {
+    pub fn map_point(&self, point: Point2<f64>, to: &Self) -> Point2<f64> {
         to.min + (point - self.min).component_div(&self.size()).component_mul(&to.size())
     }
 
-    pub fn map_distance(&self, distance: f32, to: &Self) -> f32 {
+    pub fn map_distance(&self, distance: f64, to: &Self) -> f64 {
         distance / self.width() * to.width()
     }
 
-    pub fn pad(mut self, pad: f32) -> Self {
+    pub fn pad(mut self, pad: f64) -> Self {
         self.min.x -= pad;
         self.min.y -= pad;
         self.max.x += pad;
@@ -88,8 +88,8 @@ impl Boundary {
 #[derive(Debug)]
 pub struct Quadtree {
     children: Vec<Quadtree>,
-    center_of_mass: Point2<f32>,
-    total_mass: f32,
+    center_of_mass: Point2<f64>,
+    total_mass: f64,
     boundary: Boundary,
 }
 
@@ -112,16 +112,16 @@ impl Quadtree {
     }
 
     fn subdivide(&mut self) {
-        let min: Point2<f32> = self.boundary.min;
-        let max: Point2<f32> = self.boundary.max;
-        let ctr: Point2<f32> = nalgebra::center(&min, &max);
+        let min: Point2<f64> = self.boundary.min;
+        let max: Point2<f64> = self.boundary.max;
+        let ctr: Point2<f64> = nalgebra::center(&min, &max);
         self.children.push(Quadtree::new(Boundary::new(Point2::new(min.x, min.y), Point2::new(ctr.x, ctr.y))));
         self.children.push(Quadtree::new(Boundary::new(Point2::new(ctr.x, min.y), Point2::new(max.x, ctr.y))));
         self.children.push(Quadtree::new(Boundary::new(Point2::new(min.x, ctr.y), Point2::new(ctr.x, max.y))));
         self.children.push(Quadtree::new(Boundary::new(Point2::new(ctr.x, ctr.y), Point2::new(max.x, max.y))));
     }
 
-    pub fn insert(&mut self, position: Point2<f32>, mass: f32) {
+    pub fn insert(&mut self, position: Point2<f64>, mass: f64) {
 
         if self.is_empty() {
             self.center_of_mass = position;
@@ -166,25 +166,23 @@ impl Quadtree {
         }
     }
 
-    pub fn calculate_acceleration(&self, position: Point2<f32>, theta: f32) -> Vector2<f32> {
-        if (!self.is_empty() && self.is_leaf()) || self.boundary.size() < (position - self.center_of_mass) * theta {
+    pub fn calculate_acceleration(&self, position: Point2<f64>, theta: f64) -> Vector2<f64> {
+        if self.is_empty() || position == self.center_of_mass {
+            return Vector2::zeros();
+        }
+
+        if self.is_leaf() || self.boundary.size() < (position - self.center_of_mass) * theta {
             let m = self.total_mass;
-            let d: Vector2<f32> = self.center_of_mass - position;
+            let d: Vector2<f64> = self.center_of_mass - position;
             let r = d.magnitude();
 
-            if r < f32::EPSILON {
-                return Vector2::zeros();
-            }
-            return (m / (r * r * r)) * d;
+            (m / (r * r * r)) * d
         }
-        else if !self.is_leaf() {
+        else {
             self.children.iter()
                 .map(|child| {
                     child.calculate_acceleration(position, theta)
                 }).sum()
-        }
-        else {
-            return Vector2::zeros();
         }
     }
 }
@@ -197,7 +195,7 @@ struct Grid {
 }
 
 impl Grid {
-    fn new(min_cell_width: f32, boundary: Boundary) -> Self {
+    fn new(min_cell_width: f64, boundary: Boundary) -> Self {
         let resolution = (boundary.width() / min_cell_width).floor() as usize;
 
         Self {
@@ -207,12 +205,12 @@ impl Grid {
         }
     }
 
-    fn insert(&mut self, index: usize, position: Point2<f32>) {
+    fn insert(&mut self, index: usize, position: Point2<f64>) {
         let pos = self.boundary.map_point(
             position, 
             &Boundary::new(
                 Point2::new(0.0, 0.0), 
-                Point2::new(self.resolution as f32, self.resolution as f32)
+                Point2::new(self.resolution as f64, self.resolution as f64)
         ));
         let i = pos.x.floor() as usize;
         let j = pos.y.floor() as usize;
@@ -236,7 +234,7 @@ impl Grid {
 
 pub struct World {
     pub bodies: Vec<Body>,
-    largest_radius: f32,
+    largest_radius: f64,
 }
 
 impl World {
@@ -252,13 +250,13 @@ impl World {
         self.bodies.push(body);
     }
 
-    pub fn update_substeps(&mut self, dt: f32, substeps: u32) {
+    pub fn update_substeps(&mut self, dt: f64, substeps: u32) {
         for _ in 0..substeps {
-            self.update(dt / substeps as f32);
+            self.update(dt / substeps as f64);
         }
     }
 
-    pub fn update(&mut self, dt: f32) {
+    pub fn update(&mut self, dt: f64) {
         let boundary = self.calculate_boundary();
         let mut octree = Quadtree::new(boundary);
 
@@ -267,7 +265,7 @@ impl World {
         });
 
         self.bodies.iter_mut().for_each(|body| {
-            let acc: Vector2<f32> = octree.calculate_acceleration(body.pos, 1.0);
+            let acc: Vector2<f64> = octree.calculate_acceleration(body.pos, 1.0);
             body.update(dt, acc);
         });
 
@@ -277,10 +275,10 @@ impl World {
 
     /// Always square
     pub fn calculate_boundary(&self) -> Boundary {
-        let mut min_x = f32::MAX;
-        let mut min_y = f32::MAX;
-        let mut max_x = f32::MIN;
-        let mut max_y = f32::MIN;
+        let mut min_x = f64::MAX;
+        let mut min_y = f64::MAX;
+        let mut max_x = f64::MIN;
+        let mut max_y = f64::MIN;
 
         self.bodies.iter().for_each(|body| {
             min_x = min_x.min(body.pos.x);
@@ -306,16 +304,16 @@ impl World {
         let p1 = &self.bodies[i];
         let p2 = &self.bodies[j];
 
-        let difference: Vector2<f32> = p1.pos - p2.pos;
+        let difference: Vector2<f64> = p1.pos - p2.pos;
         let distance_sq = difference.norm_squared();
 
         let distance = distance_sq.sqrt();
-        let normal: Vector2<f32> = difference / distance;
+        let normal: Vector2<f64> = difference / distance;
 
         let desired_distance = p1.radius + p2.radius;
 
-        let v1: Vector2<f32> = p1.vel;
-        let v2: Vector2<f32> = p2.vel;
+        let v1: Vector2<f64> = p1.vel;
+        let v2: Vector2<f64> = p2.vel;
         let m1 = p1.mass;
         let m2 = p2.mass;
         let t1 = 2.0 * m2 / (m1 + m2);
@@ -323,8 +321,9 @@ impl World {
 
         self.bodies[i].pos += normal * t1 * (desired_distance - distance) * 0.5;
         self.bodies[j].pos -= normal * t2 * (desired_distance - distance) * 0.5;
-        self.bodies[i].vel -= t1 * ((v1 - v2).dot(&difference) / distance_sq) * difference;
-        self.bodies[j].vel += t2 * ((v1 - v2).dot(&difference) / distance_sq) * difference;
+
+        self.bodies[i].vel -= t1 * ((v1 - v2).dot(&difference) / distance_sq) * difference * 0.5; // 50% energy loss
+        self.bodies[j].vel += t2 * ((v1 - v2).dot(&difference) / distance_sq) * difference * 0.5; // 50% energy loss
     }
 
     fn collide(&mut self, boundary: Boundary) {
@@ -339,11 +338,11 @@ impl World {
                 let indices = grid.get3x3(x, y);
 
                 for i in 0..indices.len() {
-                    let p0: Point2<f32> = self.bodies[indices[i]].pos;
+                    let p0: Point2<f64> = self.bodies[indices[i]].pos;
                     let r0 = self.bodies[indices[i]].radius;
 
                     for j in 0..i  {
-                        let p1: Point2<f32> = self.bodies[indices[j]].pos;
+                        let p1: Point2<f64> = self.bodies[indices[j]].pos;
                         let r1 = self.bodies[indices[j]].radius;
                         if (p1 - p0).norm_squared() < (r0 + r1) * (r0 + r1) {
                             self.resolve(indices[i], indices[j]);
@@ -355,7 +354,7 @@ impl World {
     }
 
     /// Extremely inefficient (but accurate) calculation of the total energy in the system.
-    pub fn total_energy(&self) -> f32 {
+    pub fn total_energy(&self) -> f64 {
         let mut potential_energy = 0.0;
         let mut kinetic_energy = 0.0;
         for i in 0..self.bodies.len() {
