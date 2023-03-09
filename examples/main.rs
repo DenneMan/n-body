@@ -1,95 +1,167 @@
-use particle_simulation::{World, Octree, Boundary, Body};
-use nalgebra::{Point3, Vector3};
+use std::f32::consts::{TAU, PI};
 
-use bevy::prelude::*;
-
-use bevy_flycam::PlayerPlugin;
+use particle_simulation::{World, Boundary, Body};
+use nalgebra::{Point2, Vector2};
 
 use rand::prelude::*;
 
-fn point_in_sphere(rng: &mut ThreadRng) -> Point3<f32> {
-    let v: Vector3<f32> = Vector3::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5) * 2.0;
-    if v.magnitude_squared() == 0.0 {
-        return Point3::origin() + v;
-    }
+use log::error;
 
-    let r = rng.gen::<f32>().cbrt();
+use pixels::{Pixels, SurfaceTexture};
 
-    Point3::origin() + v.normalize() * r
-}
+use winit::{
+    dpi::PhysicalSize,
+    event::VirtualKeyCode,
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
+};
 
-#[derive(Resource)]
-struct BevyWorld(World);
+use winit_input_helper::WinitInputHelper;
 
-#[derive(Component)]
-struct BodyID {
-    id: usize,
-}
+const WIDTH: usize = 800;
+const HEIGHT: usize = 800;
 
 fn main() {
-    App::new()
-        .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-        .add_plugins(DefaultPlugins)
-        .add_plugin(PlayerPlugin)
-        .add_startup_system(setup)
-        .add_system(update_simulation)
-        .run();
+    let size = PhysicalSize::new(WIDTH as u32, HEIGHT as u32);
 
-    let mut octree = Octree::new(Boundary::new(Point3::new(0.0, 0.0, 0.0), Point3::new(100.0, 100.0, 100.0)));
+    let event_loop = EventLoop::new();
+    let mut input = WinitInputHelper::new();
+    
+    let window = WindowBuilder::new()
+        .with_resizable(false)
+        .with_title("Particles >:)")
+        .with_inner_size(size)
+        .with_min_inner_size(size)
+        .build(&event_loop)
+        .unwrap();
 
-    octree.insert(Point3::new(25.0, 25.0, 25.0), 50.0);
-    octree.insert(Point3::new(75.0, 25.0, 25.0), 500.0);
-
-    println!("{}", octree.calculate_acceleration(Point3::new(50.0, 25.0, 25.0), 0.0));
-}
-
-const BODY_COUNT: usize = 100;
-
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>
-) {
-    let shared_mesh = meshes.add(Mesh::from(shape::Icosphere {
-        subdivisions: 0,
-        radius: 1.0,
-    }));
-    let shared_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        unlit: true,
-        ..Default::default()
-    });
-
-    let mut rng = thread_rng();
+    let mut pixels = Pixels::new(
+        WIDTH as u32, 
+        HEIGHT as u32, 
+        SurfaceTexture::new(size.width, size.height, &window)
+    ).unwrap();
 
     let mut world = World::new();
+    const N: u32 = 30;
+    let mut rng = rand::thread_rng();
+    for i in 0..N {
+        let i = i as f32;
+        let n = N as f32;
 
-    for id in 0..BODY_COUNT {
-        let pos: Point3<f32> = point_in_sphere(&mut rng);
-        let vel: Vector3<f32> = Vector3::new(pos.z, 0.0, -pos.x);
-        let mesh = shared_mesh.clone();
-        let material = shared_material.clone();
-
-        world.insert(Body::new(pos, Vector3::zeros(), 1_000_000.0, 0.01));
-        commands.spawn(PbrBundle {
-            mesh,
-            material,
-            transform: Transform::from_xyz(pos.x, pos.y, pos.z).with_scale(Vec3::splat(0.005)),
-            ..Default::default()
-        }).insert(BodyID{id});
+        let radius = rng.gen_range(1.0..5.0);
+        world.insert(Body::new(
+            Point2::new((TAU / n * i).sin(), (TAU / n * i).cos()) * 50.0,
+            Vector2::new((TAU / n * i + PI / 2.0).sin(), (TAU / n * i + PI / 2.0).cos()) * 0.1,
+            radius * radius * radius,
+            radius,
+        ));
     }
+    event_loop.run(move |event, _, control_flow| {
+        if input.update(&event) {
+            if input.key_pressed(VirtualKeyCode::Escape) || input.close_requested() || input.destroyed() {
+                *control_flow = ControlFlow::Exit;
+                return;
+            }
 
-    commands.insert_resource(BevyWorld(world));
+            if input.key_pressed(VirtualKeyCode::Space) {
+                println!("{}", world.total_energy());
+            }
+
+            world.update_substeps(0.01, 16);
+
+            let frame = pixels.get_frame_mut();
+
+            for y in 0..HEIGHT {
+                for x in 0..WIDTH {
+                    set_pixel(x, y, 0x000000ff, frame)
+                }
+            }
+
+            let boundary = world.calculate_boundary().pad(5.0);
+            draw_particles(&world, frame, boundary);
+            if let Err(err) = pixels.render() {
+                error!("pixels.render() failed: {}", err);
+                *control_flow = ControlFlow::Exit;
+                return;
+            }
+        }
+    });
 }
 
-fn update_simulation(
-    mut bodies: Query<(&mut Transform, &mut BodyID)>,
-    mut world: ResMut<BevyWorld>,
-) {
-    world.0.update_substeps(0.01, 1);
+fn draw_particles(world: &World, frame: &mut [u8], boundary: Boundary) {
+    let screen_boundary = Boundary::new(Point2::new(0.0, 0.0), Point2::new(WIDTH as f32, HEIGHT as f32));
 
-    for (mut transform, body) in bodies.iter_mut() {
-        let pos: Point3<f32> = world.0.bodies[body.id].pos;
-        transform.translation = Vec3::new(pos.x, pos.y, pos.z);
+    world.bodies.iter().filter(|&body| {
+        boundary.contains(body.pos)
+    }).map(|body| {
+        (boundary.map_point(body.pos, &screen_boundary), boundary.map_distance(body.radius, &screen_boundary))
+    }).for_each(|(pos, radius)| {
+        draw_circle(pos.x as usize, pos.y as usize, radius, 0xffffffff, false, frame);
+    });
+}
+
+fn draw_circle(x: usize, y: usize, r: f32, color: u32, fill: bool, frame: &mut [u8]) {
+    fn not_filled(x: usize, y: usize, i: usize, j: usize, color: u32, frame: &mut [u8]) {
+        set_pixel(x + i, y + j, color, frame);
+        set_pixel(x + i, y - j, color, frame);
+        set_pixel(x - i, y + j, color, frame);
+        set_pixel(x - i, y - j, color, frame);
+        set_pixel(x + j, y + i, color, frame);
+        set_pixel(x + j, y - i, color, frame);
+        set_pixel(x - j, y + i, color, frame);
+        set_pixel(x - j, y - i, color, frame);
     }
+
+    fn filled(x: usize, y: usize, i: usize, j: usize, color: u32, frame: &mut [u8]) {
+        horizontal_line(x - i, x + i, y + j, color, frame);
+        horizontal_line(x - i, x + i, y - j, color, frame);
+        horizontal_line(x - j, x + j, y + i, color, frame);
+        horizontal_line(x - j, x + j, y - i, color, frame);
+    }
+
+    let mut i = 0.0;
+    let mut j = r;
+    let mut d = 3.0 - (2.0 * r);
+
+    if fill {
+        filled(x, y, i as usize, j as usize, color, frame);
+    } else {
+        not_filled(x, y, i as usize, j as usize, color, frame);
+    }
+
+    while i <= j {
+        if d <= 0.0 {
+            d += (4.0 * i) + 6.0;
+        }  
+        else  
+        {
+            d += (4.0 * i) - (4.0 * j) + 10.0;
+            j -= 1.0;
+        }
+        i += 1.0;
+
+        if fill {
+            filled(x, y, i as usize, j as usize, color, frame);
+        } else {
+            not_filled(x, y, i as usize, j as usize, color, frame);
+        }
+    }
+}
+
+fn horizontal_line(x0: usize, x1: usize, y: usize, color: u32, frame: &mut [u8]) {
+    for x in x0..x1 {
+        set_pixel(x, y, color, frame);
+    }
+}
+
+fn set_pixel(x: usize, y: usize, color: u32, frame: &mut [u8]) {
+    if x >= WIDTH || y >= HEIGHT {
+        return;
+    }
+
+    let i = x + (HEIGHT - 1 - y) * WIDTH;
+    frame[i * 4 + 0] = ((color >> 24) & 0xff) as u8;
+    frame[i * 4 + 1] = ((color >> 16) & 0xff) as u8;
+    frame[i * 4 + 2] = ((color >> 8)  & 0xff) as u8;
+    frame[i * 4 + 3] = ((color >> 0)  & 0xff) as u8;
 }

@@ -1,13 +1,17 @@
 [package]
-name = "particle_simulation"
+name = "n-body"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = "0.9.1"
-bevy_flycam = "*"
+pixels = "0.11.0"
+winit = "0.28.2"
+
+winit_input_helper = "0.14.0"
+
+log = "0.4.17"
 
 rand = "0.8.5"
 
