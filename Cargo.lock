@@ -603,6 +603,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "n-body"
+version = "0.1.0"
+dependencies = [
+ "cpu-time",
+ "log",
+ "nalgebra",
+ "pixels",
+ "rand",
+ "winit",
+ "winit_input_helper",
+]
+
+[[package]]
 name = "naga"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -866,19 +879,6 @@ dependencies = [
  "redox_syscall 0.2.16",
  "smallvec",
  "windows-sys",
-]
-
-[[package]]
-name = "particle_simulation"
-version = "0.1.0"
-dependencies = [
- "cpu-time",
- "log",
- "nalgebra",
- "pixels",
- "rand",
- "winit",
- "winit_input_helper",
 ]
 
 [[package]]

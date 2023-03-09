@@ -1,6 +1,6 @@
 use std::f32::consts::{TAU, PI};
 
-use particle_simulation::{World, Boundary, Body};
+use n_body::{World, Boundary, Body};
 use nalgebra::{Point2, Vector2};
 
 use rand::prelude::*;
