@@ -15,7 +15,7 @@ log = "0.4.17"
 
 rand = "0.8.5"
 
-nalgebra = "0.32.1"
+nalgebra = "0.32.2"
 cpu-time = "1.0.0"
 
 [profile.release-with-debug]

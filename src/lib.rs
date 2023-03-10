@@ -1,5 +1,58 @@
 use nalgebra::{Point2, Vector2};
 
+trait InvSqrt {
+    fn inv_sqrt(self) -> Self;
+}
+
+impl InvSqrt for f32 {
+    fn inv_sqrt(self) -> Self {
+        use std::mem::transmute;
+
+		const THREEHALFS: f32 = 1.5f32;
+		let x2: f32 = self * 0.5f32;
+        
+        // evil floating point bit level hacking
+		let mut i: u32 = unsafe { transmute(self) };
+
+        // what the fuck?
+		i = 0x5f375a86 - (i >> 1);
+		let mut y: f32 = unsafe { transmute(i) };
+
+        // 1st iteration
+		y = y * ( THREEHALFS - ( x2 * y * y ) );
+
+        // 2nd iteration, this can be removed
+//      y = y * ( THREEHALFS - ( x2 * y * y ) );     
+
+		return y;
+    }
+}
+
+impl InvSqrt for f64 {
+
+    fn inv_sqrt(self) -> Self {
+        use std::mem::transmute;
+        
+		const THREEHALFS: f64 = 1.5;
+		let x2 = self * 0.5;
+        
+        // evil floating point bit level hacking
+        let mut i: u64 = unsafe { transmute(self) };
+
+        // what the fuck?
+		i = 0x5fe6ec85e7de30da - (i >> 1);
+		let mut y: f64 = unsafe { transmute(i) };
+
+        // 1st iteration
+        y = y * ( THREEHALFS - ( x2 * y * y ) );
+
+        // 2nd iteration, this can be removed
+//      y = y * ( THREEHALFS - ( x2 * y * y ) );
+
+        return y;
+    }
+}
+
 #[derive(Default)]
 pub struct Body {
     pub pos: Point2<f64>,
@@ -32,14 +85,14 @@ impl Body {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Boundary {
     pub min: Point2<f64>,
     pub max: Point2<f64>,
 }
 
 impl Boundary {
-    pub fn new(min: Point2<f64>, max: Point2<f64>) -> Self {
+    pub const fn new(min: Point2<f64>, max: Point2<f64>) -> Self {
         Self {
             min, 
             max,
@@ -50,7 +103,7 @@ impl Boundary {
         position >= self.min && position <= self.max
     }
 
-    pub fn intersects(&self, other: Self) -> bool {
+    pub fn intersects(&self, other: &Self) -> bool {
         self.min <= other.max && self.max >= other.min
     }
 
@@ -66,7 +119,7 @@ impl Boundary {
         self.max - self.min
     }
 
-    pub fn map_point(&self, point: Point2<f64>, to: &Self) -> Point2<f64> {
+    pub fn map(&self, point: Point2<f64>, to: &Self) -> Point2<f64> {
         to.min + (point - self.min).component_div(&self.size()).component_mul(&to.size())
     }
 
@@ -74,23 +127,25 @@ impl Boundary {
         distance / self.width() * to.width()
     }
 
-    pub fn pad(mut self, pad: f64) -> Self {
-        self.min.x -= pad;
-        self.min.y -= pad;
-        self.max.x += pad;
-        self.max.y += pad;
+    pub fn pad(&self, pad: f64) -> Self {
+        let mut result = self.clone();
 
-        self
+        result.min.x -= pad;
+        result.min.y -= pad;
+        result.max.x += pad;
+        result.max.y += pad;
+
+        result
     }
 }
 
-/// Barnes-Hut octree implementation
+/// Barnes-Hut quadtree implementation
 #[derive(Debug)]
 pub struct Quadtree {
-    children: Vec<Quadtree>,
-    center_of_mass: Point2<f64>,
-    total_mass: f64,
-    boundary: Boundary,
+    pub children: Vec<Quadtree>,
+    pub center_of_mass: Point2<f64>,
+    pub total_mass: f64,
+    pub boundary: Boundary,
 }
 
 impl Quadtree {
@@ -103,11 +158,11 @@ impl Quadtree {
         }
     }
 
-    fn is_leaf(&self) -> bool {
+    pub fn is_leaf(&self) -> bool {
         self.children.len() == 0
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.total_mass == 0.0
     }
 
@@ -166,23 +221,49 @@ impl Quadtree {
         }
     }
 
-    pub fn calculate_acceleration(&self, position: Point2<f64>, theta: f64) -> Vector2<f64> {
+    pub fn calculate_acceleration_recursive(&self, position: Point2<f64>, theta: f64) -> Vector2<f64> {
         if self.is_empty() || position == self.center_of_mass {
             return Vector2::zeros();
         }
 
-        if self.is_leaf() || self.boundary.size() < (position - self.center_of_mass) * theta {
+        if self.is_leaf() || self.boundary.size() < (position - self.center_of_mass).abs() * theta {
             let m = self.total_mass;
             let d: Vector2<f64> = self.center_of_mass - position;
-            let r = d.magnitude();
+            let r = d.magnitude_squared().inv_sqrt();
 
-            (m / (r * r * r)) * d
-        }
-        else {
-            self.children.iter()
+            return (m * r * r * r) * d;
+        } else {
+            return self.children.iter()
                 .map(|child| {
-                    child.calculate_acceleration(position, theta)
-                }).sum()
+                    child.calculate_acceleration_recursive(position, theta)
+                }).sum();
+        }
+    }
+
+    pub fn calculate_acceleration(&self, position: Point2<f64>, theta: f64) -> Vector2<f64> {
+        let mut stack = vec![self];
+
+        let mut sum: Vector2<f64> = Vector2::zeros();
+
+        loop {
+            if let Some(current) = stack.pop() {
+                if current.is_leaf() || current.boundary.size() < (position - current.center_of_mass).abs() * theta {
+                    let m = current.total_mass;
+                    let d: Vector2<f64> = current.center_of_mass - position;
+                    let r = d.magnitude().recip();
+        
+                    sum += (m * r * r * r) * d;
+                } else {
+                    for child in current.children.iter() {
+                        if !child.is_empty() && position != child.center_of_mass {
+                            stack.push(child);
+                        }
+                    }
+                }
+            }
+            else {
+                return sum;
+            }
         }
     }
 }
@@ -206,7 +287,7 @@ impl Grid {
     }
 
     fn insert(&mut self, index: usize, position: Point2<f64>) {
-        let pos = self.boundary.map_point(
+        let pos: Point2<f64> = self.boundary.map(
             position, 
             &Boundary::new(
                 Point2::new(0.0, 0.0), 
@@ -234,19 +315,16 @@ impl Grid {
 
 pub struct World {
     pub bodies: Vec<Body>,
-    largest_radius: f64,
 }
 
 impl World {
     pub fn new() -> Self {
         Self {
             bodies: Vec::new(),
-            largest_radius: 0.0,
         }
     }
 
     pub fn insert(&mut self, body: Body) {
-        self.largest_radius = self.largest_radius.max(body.radius); // TODO: Fix bug that appears if user edits radius of a body that is already in the world.
         self.bodies.push(body);
     }
 
@@ -257,20 +335,23 @@ impl World {
     }
 
     pub fn update(&mut self, dt: f64) {
+        if self.bodies.len() == 0 {
+            return;
+        }
+
         let boundary = self.calculate_boundary();
-        let mut octree = Quadtree::new(boundary);
+        let mut quadtree = Quadtree::new(boundary);
 
         self.bodies.iter().for_each(|body| {
-            octree.insert(body.pos, body.mass);
+            quadtree.insert(body.pos, body.mass);
         });
 
         self.bodies.iter_mut().for_each(|body| {
-            let acc: Vector2<f64> = octree.calculate_acceleration(body.pos, 1.0);
+            let acc: Vector2<f64> = quadtree.calculate_acceleration(body.pos, 1.0);
             body.update(dt, acc);
         });
 
-        let boundary = self.calculate_boundary().pad(self.largest_radius * 2.0);
-        self.collide(boundary);
+        self.collide();
     }
 
     /// Always square
@@ -300,6 +381,10 @@ impl World {
         Boundary::new(Point2::new(min_x, min_y), Point2::new(max_x, max_y))
     }
 
+    pub fn find_largest_radius(&self) -> Option<f64> {
+        self.bodies.iter().map(|body| body.radius).max_by(|rhs, lhs| rhs.total_cmp(lhs))
+    }
+
     fn resolve(&mut self, i: usize, j: usize) {
         let p1 = &self.bodies[i];
         let p2 = &self.bodies[j];
@@ -322,12 +407,16 @@ impl World {
         self.bodies[i].pos += normal * t1 * (desired_distance - distance) * 0.5;
         self.bodies[j].pos -= normal * t2 * (desired_distance - distance) * 0.5;
 
-        self.bodies[i].vel -= t1 * ((v1 - v2).dot(&difference) / distance_sq) * difference * 0.5; // 50% energy loss
-        self.bodies[j].vel += t2 * ((v1 - v2).dot(&difference) / distance_sq) * difference * 0.5; // 50% energy loss
+        self.bodies[i].vel -= t1 * ((v1 - v2).dot(&difference) / distance_sq) * difference * 0.5; // 50% velocity loss
+        self.bodies[j].vel += t2 * ((v1 - v2).dot(&difference) / distance_sq) * difference * 0.5; // 50% velocity loss
     }
 
-    fn collide(&mut self, boundary: Boundary) {
-        let mut grid = Grid::new(self.largest_radius * 2.0, boundary);
+    /// Will panic if there are no bodies.
+    fn collide(&mut self) {
+        let r = self.find_largest_radius().unwrap();
+        let boundary = self.calculate_boundary().pad(r * 2.0);
+
+        let mut grid = Grid::new(r * 4.0, boundary);
 
         self.bodies.iter().enumerate().for_each(|(i, body)| {
             grid.insert(i, body.pos);
