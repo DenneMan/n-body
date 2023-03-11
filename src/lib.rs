@@ -6,65 +6,38 @@ trait InvSqrt {
 
 impl InvSqrt for f32 {
     fn inv_sqrt(self) -> Self {
-        use std::mem::transmute;
-
 		const THREEHALFS: f32 = 1.5f32;
 		let x2: f32 = self * 0.5f32;
         
         // evil floating point bit level hacking
-		let mut i: u32 = unsafe { transmute(self) };
+		let mut i: u32 = unsafe { std::mem::transmute(self) };
 
         // what the fuck?
 		i = 0x5f375a86 - (i >> 1);
-		let mut y: f32 = unsafe { transmute(i) };
+		let mut y: f32 = unsafe { std::mem::transmute(i) };
 
         // 1st iteration
 		y = y * ( THREEHALFS - ( x2 * y * y ) );
 
         // 2nd iteration, this can be removed
-//      y = y * ( THREEHALFS - ( x2 * y * y ) );     
+//      y = y * ( THREEHALFS - ( x2 * y * y ) );
 
 		return y;
     }
 }
 
-impl InvSqrt for f64 {
-
-    fn inv_sqrt(self) -> Self {
-        use std::mem::transmute;
-        
-		const THREEHALFS: f64 = 1.5;
-		let x2 = self * 0.5;
-        
-        // evil floating point bit level hacking
-        let mut i: u64 = unsafe { transmute(self) };
-
-        // what the fuck?
-		i = 0x5fe6ec85e7de30da - (i >> 1);
-		let mut y: f64 = unsafe { transmute(i) };
-
-        // 1st iteration
-        y = y * ( THREEHALFS - ( x2 * y * y ) );
-
-        // 2nd iteration, this can be removed
-//      y = y * ( THREEHALFS - ( x2 * y * y ) );
-
-        return y;
-    }
-}
-
 #[derive(Default)]
 pub struct Body {
-    pub pos: Point2<f64>,
-    pub vel: Vector2<f64>,
-    pub acc: Vector2<f64>,
+    pub pos: Point2<f32>,
+    pub vel: Vector2<f32>,
+    pub acc: Vector2<f32>,
 
-    pub mass: f64,
-    pub radius: f64,
+    pub mass: f32,
+    pub radius: f32,
 }
 
 impl Body {
-    pub fn new(pos: Point2<f64>, vel: Vector2<f64>, mass: f64, radius: f64) -> Self {
+    pub fn new(pos: Point2<f32>, vel: Vector2<f32>, mass: f32, radius: f32) -> Self {
         Self {
             pos,
             vel,
@@ -75,10 +48,10 @@ impl Body {
         }
     }
 
-    pub fn update(&mut self, dt: f64, acc: Vector2<f64>) {
-        let new_pos: Point2<f64> = self.pos + self.vel*dt + self.acc*(dt*dt*0.5);
-        let new_acc: Vector2<f64> = acc;
-        let new_vel: Vector2<f64> = self.vel + (self.acc+new_acc)*(dt*0.5);
+    pub fn update(&mut self, dt: f32, acc: Vector2<f32>) {
+        let new_pos: Point2<f32> = self.pos + self.vel*dt + self.acc*(dt*dt*0.5);
+        let new_acc: Vector2<f32> = acc;
+        let new_vel: Vector2<f32> = self.vel + (self.acc+new_acc)*(dt*0.5);
         self.pos = new_pos;
         self.vel = new_vel;
         self.acc = new_acc;
@@ -87,19 +60,19 @@ impl Body {
 
 #[derive(Clone, Debug)]
 pub struct Boundary {
-    pub min: Point2<f64>,
-    pub max: Point2<f64>,
+    pub min: Point2<f32>,
+    pub max: Point2<f32>,
 }
 
 impl Boundary {
-    pub const fn new(min: Point2<f64>, max: Point2<f64>) -> Self {
+    pub const fn new(min: Point2<f32>, max: Point2<f32>) -> Self {
         Self {
             min, 
             max,
         }
     }
 
-    pub fn contains(&self, position: Point2<f64>) -> bool {
+    pub fn contains(&self, position: Point2<f32>) -> bool {
         position >= self.min && position <= self.max
     }
 
@@ -107,27 +80,27 @@ impl Boundary {
         self.min <= other.max && self.max >= other.min
     }
 
-    pub fn width(&self) -> f64 {
+    pub fn width(&self) -> f32 {
         self.max.x - self.min.x
     }
 
-    pub fn height(&self) -> f64 {
+    pub fn height(&self) -> f32 {
         self.max.y - self.min.y
     }
 
-    pub fn size(&self) -> Vector2<f64> {
+    pub fn size(&self) -> Vector2<f32> {
         self.max - self.min
     }
 
-    pub fn map(&self, point: Point2<f64>, to: &Self) -> Point2<f64> {
+    pub fn map(&self, point: Point2<f32>, to: &Self) -> Point2<f32> {
         to.min + (point - self.min).component_div(&self.size()).component_mul(&to.size())
     }
 
-    pub fn map_distance(&self, distance: f64, to: &Self) -> f64 {
+    pub fn map_distance(&self, distance: f32, to: &Self) -> f32 {
         distance / self.width() * to.width()
     }
 
-    pub fn pad(&self, pad: f64) -> Self {
+    pub fn pad(&self, pad: f32) -> Self {
         let mut result = self.clone();
 
         result.min.x -= pad;
@@ -143,8 +116,8 @@ impl Boundary {
 #[derive(Debug)]
 pub struct Quadtree {
     pub children: Vec<Quadtree>,
-    pub center_of_mass: Point2<f64>,
-    pub total_mass: f64,
+    pub center_of_mass: Point2<f32>,
+    pub total_mass: f32,
     pub boundary: Boundary,
 }
 
@@ -167,16 +140,16 @@ impl Quadtree {
     }
 
     fn subdivide(&mut self) {
-        let min: Point2<f64> = self.boundary.min;
-        let max: Point2<f64> = self.boundary.max;
-        let ctr: Point2<f64> = nalgebra::center(&min, &max);
+        let min: Point2<f32> = self.boundary.min;
+        let max: Point2<f32> = self.boundary.max;
+        let ctr: Point2<f32> = nalgebra::center(&min, &max);
         self.children.push(Quadtree::new(Boundary::new(Point2::new(min.x, min.y), Point2::new(ctr.x, ctr.y))));
         self.children.push(Quadtree::new(Boundary::new(Point2::new(ctr.x, min.y), Point2::new(max.x, ctr.y))));
         self.children.push(Quadtree::new(Boundary::new(Point2::new(min.x, ctr.y), Point2::new(ctr.x, max.y))));
         self.children.push(Quadtree::new(Boundary::new(Point2::new(ctr.x, ctr.y), Point2::new(max.x, max.y))));
     }
 
-    pub fn insert(&mut self, position: Point2<f64>, mass: f64) {
+    pub fn insert(&mut self, position: Point2<f32>, mass: f32) {
 
         if self.is_empty() {
             self.center_of_mass = position;
@@ -221,14 +194,14 @@ impl Quadtree {
         }
     }
 
-    pub fn calculate_acceleration_recursive(&self, position: Point2<f64>, theta: f64) -> Vector2<f64> {
+    pub fn calculate_acceleration_recursive(&self, position: Point2<f32>, theta: f32) -> Vector2<f32> {
         if self.is_empty() || position == self.center_of_mass {
             return Vector2::zeros();
         }
 
         if self.is_leaf() || self.boundary.size() < (position - self.center_of_mass).abs() * theta {
             let m = self.total_mass;
-            let d: Vector2<f64> = self.center_of_mass - position;
+            let d: Vector2<f32> = self.center_of_mass - position;
             let r = d.magnitude_squared().inv_sqrt();
 
             return (m * r * r * r) * d;
@@ -240,16 +213,16 @@ impl Quadtree {
         }
     }
 
-    pub fn calculate_acceleration(&self, position: Point2<f64>, theta: f64) -> Vector2<f64> {
+    pub fn calculate_acceleration(&self, position: Point2<f32>, theta: f32) -> Vector2<f32> {
         let mut stack = vec![self];
 
-        let mut sum: Vector2<f64> = Vector2::zeros();
+        let mut sum: Vector2<f32> = Vector2::zeros();
 
         loop {
             if let Some(current) = stack.pop() {
                 if current.is_leaf() || current.boundary.size() < (position - current.center_of_mass).abs() * theta {
                     let m = current.total_mass;
-                    let d: Vector2<f64> = current.center_of_mass - position;
+                    let d: Vector2<f32> = current.center_of_mass - position;
                     let r = d.magnitude().recip();
         
                     sum += (m * r * r * r) * d;
@@ -276,7 +249,7 @@ struct Grid {
 }
 
 impl Grid {
-    fn new(min_cell_width: f64, boundary: Boundary) -> Self {
+    fn new(min_cell_width: f32, boundary: Boundary) -> Self {
         let resolution = (boundary.width() / min_cell_width).floor() as usize;
 
         Self {
@@ -286,12 +259,12 @@ impl Grid {
         }
     }
 
-    fn insert(&mut self, index: usize, position: Point2<f64>) {
-        let pos: Point2<f64> = self.boundary.map(
+    fn insert(&mut self, index: usize, position: Point2<f32>) {
+        let pos: Point2<f32> = self.boundary.map(
             position, 
             &Boundary::new(
                 Point2::new(0.0, 0.0), 
-                Point2::new(self.resolution as f64, self.resolution as f64)
+                Point2::new(self.resolution as f32, self.resolution as f32)
         ));
         let i = pos.x.floor() as usize;
         let j = pos.y.floor() as usize;
@@ -315,12 +288,15 @@ impl Grid {
 
 pub struct World {
     pub bodies: Vec<Body>,
+    pub theta: f32,
 }
 
 impl World {
-    pub fn new() -> Self {
+    /// Theta is used for the barnes-hut algorithm. The larger theta is, the more accuracy is traded for performance.
+    pub fn new(theta: f32) -> Self {
         Self {
             bodies: Vec::new(),
+            theta,
         }
     }
 
@@ -328,13 +304,13 @@ impl World {
         self.bodies.push(body);
     }
 
-    pub fn update_substeps(&mut self, dt: f64, substeps: u32) {
+    pub fn update_substeps(&mut self, dt: f32, substeps: u32) {
         for _ in 0..substeps {
-            self.update(dt / substeps as f64);
+            self.update(dt / substeps as f32);
         }
     }
 
-    pub fn update(&mut self, dt: f64) {
+    pub fn update(&mut self, dt: f32) {
         if self.bodies.len() == 0 {
             return;
         }
@@ -347,7 +323,7 @@ impl World {
         });
 
         self.bodies.iter_mut().for_each(|body| {
-            let acc: Vector2<f64> = quadtree.calculate_acceleration(body.pos, 1.0);
+            let acc: Vector2<f32> = quadtree.calculate_acceleration(body.pos, self.theta);
             body.update(dt, acc);
         });
 
@@ -356,10 +332,10 @@ impl World {
 
     /// Always square
     pub fn calculate_boundary(&self) -> Boundary {
-        let mut min_x = f64::MAX;
-        let mut min_y = f64::MAX;
-        let mut max_x = f64::MIN;
-        let mut max_y = f64::MIN;
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
 
         self.bodies.iter().for_each(|body| {
             min_x = min_x.min(body.pos.x);
@@ -381,7 +357,7 @@ impl World {
         Boundary::new(Point2::new(min_x, min_y), Point2::new(max_x, max_y))
     }
 
-    pub fn find_largest_radius(&self) -> Option<f64> {
+    pub fn find_largest_radius(&self) -> Option<f32> {
         self.bodies.iter().map(|body| body.radius).max_by(|rhs, lhs| rhs.total_cmp(lhs))
     }
 
@@ -389,16 +365,16 @@ impl World {
         let p1 = &self.bodies[i];
         let p2 = &self.bodies[j];
 
-        let difference: Vector2<f64> = p1.pos - p2.pos;
+        let difference: Vector2<f32> = p1.pos - p2.pos;
         let distance_sq = difference.norm_squared();
 
         let distance = distance_sq.sqrt();
-        let normal: Vector2<f64> = difference / distance;
+        let normal: Vector2<f32> = difference / distance;
 
         let desired_distance = p1.radius + p2.radius;
 
-        let v1: Vector2<f64> = p1.vel;
-        let v2: Vector2<f64> = p2.vel;
+        let v1: Vector2<f32> = p1.vel;
+        let v2: Vector2<f32> = p2.vel;
         let m1 = p1.mass;
         let m2 = p2.mass;
         let t1 = 2.0 * m2 / (m1 + m2);
@@ -427,11 +403,11 @@ impl World {
                 let indices = grid.get3x3(x, y);
 
                 for i in 0..indices.len() {
-                    let p0: Point2<f64> = self.bodies[indices[i]].pos;
+                    let p0: Point2<f32> = self.bodies[indices[i]].pos;
                     let r0 = self.bodies[indices[i]].radius;
 
                     for j in 0..i  {
-                        let p1: Point2<f64> = self.bodies[indices[j]].pos;
+                        let p1: Point2<f32> = self.bodies[indices[j]].pos;
                         let r1 = self.bodies[indices[j]].radius;
                         if (p1 - p0).norm_squared() < (r0 + r1) * (r0 + r1) {
                             self.resolve(indices[i], indices[j]);
@@ -443,7 +419,7 @@ impl World {
     }
 
     /// Extremely inefficient (but accurate) calculation of the total energy in the system.
-    pub fn total_energy(&self) -> f64 {
+    pub fn total_energy(&self) -> f32 {
         let mut potential_energy = 0.0;
         let mut kinetic_energy = 0.0;
         for i in 0..self.bodies.len() {

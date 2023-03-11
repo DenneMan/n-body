@@ -1,4 +1,4 @@
-use std::{f64::consts::{TAU, PI}, time::Instant};
+use std::{f32::consts::{TAU, PI}, time::Instant};
 
 use n_body::{World, Boundary, Body, Quadtree};
 use nalgebra::{Point2, Vector2};
@@ -21,12 +21,12 @@ use winit_input_helper::WinitInputHelper;
 const WIDTH: usize = 800;
 const HEIGHT: usize = 800;
 
-const WINDOW_BOUNDARY: Boundary = Boundary::new(Point2::new(0.0, 0.0), Point2::new(WIDTH as f64, HEIGHT as f64));
+const WINDOW_BOUNDARY: Boundary = Boundary::new(Point2::new(0.0, 0.0), Point2::new(WIDTH as f32, HEIGHT as f32));
 
 enum ViewState {
     Free,
     Maximized,
-    Follow(usize, Vector2<f64>),
+    Follow(usize, Vector2<f32>),
 }
 
 struct View {
@@ -52,18 +52,18 @@ impl View {
                     let h = self.view.width();
 
                     let movement = input.mouse_diff();
-                    self.view.min.x -= movement.0 as f64 / WIDTH  as f64 * w;
-                    self.view.min.y += movement.1 as f64 / HEIGHT as f64 * h;
-                    self.view.max.x -= movement.0 as f64 / WIDTH  as f64 * w;
-                    self.view.max.y += movement.1 as f64 / HEIGHT as f64 * h;
+                    self.view.min.x -= movement.0 / WIDTH  as f32 * w;
+                    self.view.min.y += movement.1 / HEIGHT as f32 * h;
+                    self.view.max.x -= movement.0 / WIDTH  as f32 * w;
+                    self.view.max.y += movement.1 / HEIGHT as f32 * h;
                 }
 
                 if let Some(mouse) = input.mouse() {
-                    let x = mouse.0 as f64 / WIDTH  as f64;
-                    let y = mouse.1 as f64 / HEIGHT as f64;
+                    let x = mouse.0 / WIDTH  as f32;
+                    let y = mouse.1 / HEIGHT as f32;
 
-                    let w = -input.scroll_diff() as f64 * self.view.width() * 0.1;
-                    let h = -input.scroll_diff() as f64 * self.view.width() * 0.1;
+                    let w = -input.scroll_diff() * self.view.width() * 0.1;
+                    let h = -input.scroll_diff() * self.view.width() * 0.1;
 
                     self.view.min.x -= w * x;
                     self.view.min.y -= h * (1.0 - y);
@@ -81,13 +81,13 @@ impl View {
                     let h = self.view.width();
 
                     let movement = input.mouse_diff();
-                    offset.x -= movement.0 as f64 / WIDTH  as f64 * w;
-                    offset.y += movement.1 as f64 / HEIGHT as f64 * h;
+                    offset.x -= movement.0 / WIDTH  as f32 * w;
+                    offset.y += movement.1 / HEIGHT as f32 * h;
                 }
 
                 let w = self.view.width() / 2.0;
                 let h = self.view.height() / 2.0;
-                let poi: Point2<f64> = world.bodies[body].pos + offset;
+                let poi: Point2<f32> = world.bodies[body].pos + offset;
 
                 self.view.min.x = poi.x - w;
                 self.view.min.y = poi.y - h;
@@ -95,8 +95,8 @@ impl View {
                 self.view.max.y = poi.y + h;
 
                 if input.mouse().is_some() {
-                    let w = -input.scroll_diff() as f64 * self.view.width() * 0.1;
-                    let h = -input.scroll_diff() as f64 * self.view.width() * 0.1;
+                    let w = -input.scroll_diff() * self.view.width() * 0.1;
+                    let h = -input.scroll_diff() * self.view.width() * 0.1;
 
                     self.view.min.x -= w;
                     self.view.min.y -= h;
@@ -116,11 +116,11 @@ impl View {
                     self.state = ViewState::Maximized;
                 }
                 else if input.mouse_pressed(0) {
-                    let mouse: Point2<f64> = {
+                    let mouse: Point2<f32> = {
                         let tmp = input.mouse().unwrap(); // left click should only be if mouse is in window
-                        Point2::new(tmp.0 as f64, HEIGHT as f64 - tmp.1 as f64)
+                        Point2::new(tmp.0, HEIGHT as f32 - tmp.1)
                     };
-                    let world_pos: Point2<f64> = WINDOW_BOUNDARY.map(mouse, &self.view);
+                    let world_pos: Point2<f32> = WINDOW_BOUNDARY.map(mouse, &self.view);
 
                     world.bodies.iter().enumerate().for_each(|(i, body)| if (world_pos - body.pos).magnitude_squared() < body.radius * body.radius {
                         self.state = ViewState::Follow(i, Vector2::zeros());
@@ -133,11 +133,11 @@ impl View {
                     self.state = ViewState::Free;
                 }
                 else if input.mouse_pressed(0) {
-                    let mouse: Point2<f64> = {
+                    let mouse: Point2<f32> = {
                         let tmp = input.mouse().unwrap(); // left click should only be if mouse is in window
-                        Point2::new(tmp.0 as f64, HEIGHT as f64 - tmp.1 as f64)
+                        Point2::new(tmp.0, HEIGHT as f32 - tmp.1)
                     };
-                    let world_pos: Point2<f64> = WINDOW_BOUNDARY.map(mouse, &self.view);
+                    let world_pos: Point2<f32> = WINDOW_BOUNDARY.map(mouse, &self.view);
 
                     world.bodies.iter().enumerate().for_each(|(i, body)| if (world_pos - body.pos).magnitude_squared() < body.radius * body.radius {
                         self.state = ViewState::Follow(i, Vector2::zeros());
@@ -149,11 +149,11 @@ impl View {
                     self.state = ViewState::Maximized;
                 }
                 else if input.mouse_pressed(0) {
-                    let mouse: Point2<f64> = {
+                    let mouse: Point2<f32> = {
                         let tmp = input.mouse().unwrap(); // left click should only be if mouse is in window
-                        Point2::new(tmp.0 as f64, HEIGHT as f64 - tmp.1 as f64)
+                        Point2::new(tmp.0, HEIGHT as f32 - tmp.1)
                     };
-                    let world_pos: Point2<f64> = WINDOW_BOUNDARY.map(mouse, &self.view);
+                    let world_pos: Point2<f32> = WINDOW_BOUNDARY.map(mouse, &self.view);
 
                     if let Some((i, _)) =
                         world.bodies.iter()
@@ -191,7 +191,7 @@ fn main() {
         SurfaceTexture::new(size.width, size.height, &window)
     ).unwrap();
 
-    let mut world = World::new();
+    let mut world = World::new(1.0);
 
     world.insert(Body::new(
         Point2::origin(),
@@ -203,11 +203,11 @@ fn main() {
     const N: u32 = 100;
     let mut rng = rand::thread_rng();
     for i in 0..N {
-        let i = i as f64;
-        let n = N as f64;
+        let i = i as f32;
+        let n = N as f32;
 
         let distance = rng.gen_range(0.25..1.0);
-        let mut radius: f64 = rng.gen_range(0.0..1.0);
+        let mut radius: f32 = rng.gen_range(0.0..1.0);
         radius = radius.powi(3) * 10.0 + 10.0;
         world.insert(Body::new(
             Point2::new((TAU / n * i).sin(), (TAU / n * i).cos()) * 1000.0 * distance,
@@ -291,20 +291,20 @@ fn draw_quadtree(world: &World, frame: &mut [u8], view: &View) {
             if let ViewState::Follow(body, _) = view.state {
                 let position = world.bodies[body].pos;
 
-                if current.is_leaf() || current.boundary.size() < (position - current.center_of_mass).abs() * 1.0 {
-                    let p0: Point2<f64> = boundary.map(position, &WINDOW_BOUNDARY);
-                    let p1: Point2<f64> = boundary.map(current.center_of_mass, &WINDOW_BOUNDARY);
+                if current.is_leaf() || current.boundary.size() < (position - current.center_of_mass).abs() * world.theta {
+                    let p0: Point2<f32> = boundary.map(position, &WINDOW_BOUNDARY);
+                    let p1: Point2<f32> = boundary.map(current.center_of_mass, &WINDOW_BOUNDARY);
                     let x0 = p0.x as isize; let x1 = p1.x as isize; let y0 = p0.y as isize; let y1 = p1.y as isize;
 
                     draw_circle(p1.x, p1.y, 2.0, 0xff0000ff, true, frame);
 
                     draw_line(x0, y0, x1, y1, 0x444444ff, frame);
 
-                    let p0: Point2<f64> = boundary.map(current.boundary.min, &WINDOW_BOUNDARY);
-                    let p1: Point2<f64> = boundary.map(current.boundary.max, &WINDOW_BOUNDARY);
+                    let p0: Point2<f32> = boundary.map(current.boundary.min, &WINDOW_BOUNDARY);
+                    let p1: Point2<f32> = boundary.map(current.boundary.max, &WINDOW_BOUNDARY);
                     let x0 = p0.x as isize; let x1 = p1.x as isize; let y0 = p0.y as isize; let y1 = p1.y as isize;
     
-                    draw_square(x0, x1, y0, y1, 0xffffffff, frame);
+                    draw_rectangle(x0, x1, y0, y1, 0xffffffff, frame);
                 } else {
                     for child in current.children.iter() {
                         if !child.is_empty() && position != child.center_of_mass {
@@ -315,11 +315,11 @@ fn draw_quadtree(world: &World, frame: &mut [u8], view: &View) {
             }
             else {
                 if current.boundary.intersects(boundary) {
-                    let p0: Point2<f64> = boundary.map(current.boundary.min, &WINDOW_BOUNDARY);
-                    let p1: Point2<f64> = boundary.map(current.boundary.max, &WINDOW_BOUNDARY);
+                    let p0: Point2<f32> = boundary.map(current.boundary.min, &WINDOW_BOUNDARY);
+                    let p1: Point2<f32> = boundary.map(current.boundary.max, &WINDOW_BOUNDARY);
                     let x0 = p0.x as isize; let x1 = p1.x as isize; let y0 = p0.y as isize; let y1 = p1.y as isize;
     
-                    draw_square(x0, x1, y0, y1, 0xffffffff, frame);
+                    draw_rectangle(x0, x1, y0, y1, 0xffffffff, frame);
                 }
                 if !current.is_leaf() {
                     for child in current.children.iter() {
@@ -337,7 +337,7 @@ fn draw_quadtree(world: &World, frame: &mut [u8], view: &View) {
 }
 
 fn draw_particles(world: &World, frame: &mut [u8], boundary: &Boundary) {
-    let screen_boundary = Boundary::new(Point2::new(0.0, 0.0), Point2::new(WIDTH as f64, HEIGHT as f64));
+    let screen_boundary = Boundary::new(Point2::new(0.0, 0.0), Point2::new(WIDTH as f32, HEIGHT as f32));
 
     world.bodies.iter().filter(|&body| {
         boundary.pad(body.radius).contains(body.pos)
@@ -348,7 +348,7 @@ fn draw_particles(world: &World, frame: &mut [u8], boundary: &Boundary) {
     });
 }
 
-fn draw_circle(x: f64, y: f64, r: f64, color: u32, fill: bool, frame: &mut [u8]) {
+fn draw_circle(x: f32, y: f32, r: f32, color: u32, fill: bool, frame: &mut [u8]) {
     fn not_filled(x: usize, y: usize, i: usize, j: usize, color: u32, frame: &mut [u8]) {
         set_pixel(x + i, y + j, color, frame);
         set_pixel(x + i, y - j, color, frame);
@@ -396,23 +396,26 @@ fn draw_circle(x: f64, y: f64, r: f64, color: u32, fill: bool, frame: &mut [u8])
     }
 }
 
+/// y0 < y1 for it to work
 fn draw_horizontal_line(x0: isize, x1: isize, y: isize, color: u32, frame: &mut [u8]) {
     for x in x0..x1 {
         set_pixel(x as usize, y as usize, color, frame);
     }
 }
 
+/// y0 < y1 for it to work
 fn draw_vertical_line(x: isize, y0: isize, y1: isize, color: u32, frame: &mut [u8]) {
     for y in y0..y1 {
         set_pixel(x as usize, y as usize, color, frame);
     }
 }
 
-fn draw_square(x0: isize, x1: isize, y0: isize, y1: isize, color: u32, frame: &mut [u8]) {
-    draw_horizontal_line(x0, x1, y0, 0xffffffff, frame);
-    draw_horizontal_line(x0, x1, y1, 0xffffffff, frame);
-    draw_vertical_line(x0, y0, y1, 0xffffffff, frame);
-    draw_vertical_line(x1, y0, y1, 0xffffffff, frame);
+/// x0 < x1 & y0 < y1 for it to work
+fn draw_rectangle(x0: isize, x1: isize, y0: isize, y1: isize, color: u32, frame: &mut [u8]) {
+    draw_horizontal_line(x0, x1, y0, color, frame);
+    draw_horizontal_line(x0, x1, y1, color, frame);
+    draw_vertical_line(x0, y0, y1, color, frame);
+    draw_vertical_line(x1, y0, y1, color, frame);
 }
 
 fn set_pixel(x: usize, y: usize, color: u32, frame: &mut [u8]) {
