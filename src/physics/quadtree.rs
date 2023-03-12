@@ -51,7 +51,6 @@ impl Quadtree {
 
         loop {
             if let Some(current) = stack.pop() {
-                //puffin::profile_scope!("fake recurse");
                 let position = positions.pop().unwrap();
                 let mass = masses.pop().unwrap();
 
