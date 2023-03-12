@@ -1,4 +1,4 @@
-use nalgebra::{Vector2, Point2};
+use nalgebra::Vector2;
 
 use winit::event::VirtualKeyCode;
 use winit_input_helper::WinitInputHelper;
@@ -27,12 +27,12 @@ impl View {
             window_width,
             window_height,
             state: ViewState::Maximized,
-            boundary: Boundary::new(Point2::origin(), Point2::origin()),
+            boundary: Boundary::new(Vector2::zeros(), Vector2::zeros()),
         }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-        let center = Point2::from((self.boundary.min.coords + self.boundary.max.coords) * 0.5);
+        let center = (self.boundary.min + self.boundary.max) * 0.5;
 
         let new_width  = self.boundary.width()  / self.window_width  as f32 * width  as f32;
         let new_height = self.boundary.height() / self.window_height as f32 * height as f32;
@@ -85,7 +85,7 @@ impl View {
                     Vector2::new(boundary.width(), boundary.height() / self.window_width as f32 * self.window_height as f32) * 0.5
                 };
 
-                let center = Point2::from((boundary.min.coords + boundary.max.coords) * 0.5);
+                let center = (boundary.min + boundary.max) * 0.5;
 
                 self.boundary.min = center - p;
                 self.boundary.max = center + p;
@@ -94,7 +94,7 @@ impl View {
 
                 if input.mouse_held(2) {
                     let w = self.boundary.width();
-                    let h = self.boundary.width();
+                    let h = self.boundary.height();
 
                     let movement = input.mouse_diff();
                     offset.x -= movement.0 / self.window_width  as f32 * w;
@@ -103,7 +103,7 @@ impl View {
 
                 let w = self.boundary.width() / 2.0;
                 let h = self.boundary.height() / 2.0;
-                let poi: Point2<f32> = world.bodies[body].pos + offset;
+                let poi: Vector2<f32> = world.bodies[body].pos + offset;
 
                 self.boundary.min.x = poi.x - w;
                 self.boundary.min.y = poi.y - h;
@@ -112,7 +112,7 @@ impl View {
 
                 if input.mouse().is_some() {
                     let w = -input.scroll_diff() * self.boundary.width() * 0.1;
-                    let h = -input.scroll_diff() * self.boundary.width() * 0.1;
+                    let h = -input.scroll_diff() * self.boundary.height() * 0.1;
 
                     self.boundary.min.x -= w;
                     self.boundary.min.y -= h;
@@ -126,7 +126,7 @@ impl View {
     }
 
     fn handle_state_change(&mut self, input: &WinitInputHelper, world: &World) {
-        let window_boundary = Boundary::new(Point2::origin(), Point2::new(self.window_width as f32, self.window_height as f32));
+        let window_boundary = Boundary::new(Vector2::zeros(), Vector2::new(self.window_width as f32, self.window_height as f32));
 
         match self.state {
             ViewState::Free => {
@@ -136,7 +136,7 @@ impl View {
                 else if input.mouse_pressed(0) {
                     if let Some(mouse) = input.mouse() {
                         let x = mouse.0; let y = self.window_height as f32 - mouse.1;
-                        let world_pos: Point2<f32> = window_boundary.map(Point2::new(x, y), &self.boundary);
+                        let world_pos: Vector2<f32> = window_boundary.map(Vector2::new(x, y), &self.boundary);
 
                         world.bodies.iter().enumerate().for_each(|(i, body)| if (world_pos - body.pos).magnitude_squared() < body.radius * body.radius {
                             self.state = ViewState::Follow(i, Vector2::zeros());
@@ -152,7 +152,7 @@ impl View {
                 else if input.mouse_pressed(0) {
                     if let Some(mouse) = input.mouse() {
                         let x = mouse.0; let y = self.window_height as f32 - mouse.1;
-                        let world_pos: Point2<f32> = window_boundary.map(Point2::new(x, y), &self.boundary);
+                        let world_pos: Vector2<f32> = window_boundary.map(Vector2::new(x, y), &self.boundary);
     
                         world.bodies.iter().enumerate().for_each(|(i, body)| if (world_pos - body.pos).magnitude_squared() < body.radius * body.radius {
                             self.state = ViewState::Follow(i, Vector2::zeros());
@@ -167,7 +167,7 @@ impl View {
                 else if input.mouse_pressed(0) {
                     if let Some(mouse) = input.mouse() {
                         let x = mouse.0; let y = self.window_height as f32 - mouse.1;
-                        let world_pos: Point2<f32> = window_boundary.map(Point2::new(x, y), &self.boundary);
+                        let world_pos: Vector2<f32> = window_boundary.map(Vector2::new(x, y), &self.boundary);
 
                         if let Some((i, _)) =
                             world.bodies.iter()

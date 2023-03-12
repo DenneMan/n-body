@@ -1,202 +1,270 @@
-use nalgebra::{Point2, Vector2};
+use nalgebra::Vector2;
 
 use crate::physics::{
-    boundary::Boundary,
     inv_sqrt::InvSqrt
 };
 
-/// Barnes-Hut quadtree implementation
-pub struct Quadtree {
-    pub children: Vec<Quadtree>, // Convert from nested to flattened
-    pub center_of_mass: Point2<f32>,
-    pub total_mass: f32,
-    pub boundary: Boundary,
+use super::body::Body;
+
+#[derive(Clone, Copy)]
+pub enum Quadrant {
+    I   = 0, // North-east
+    II  = 1, // North-west
+    III = 2, // South-west
+    IV  = 3, // South-east
 }
 
-impl Quadtree {
-    pub fn new(boundary: Boundary) -> Self {
-        Self {
-            children: Vec::new(),
-            center_of_mass: Point2::origin(),
-            total_mass: 0.0,
-            boundary
+impl From<usize> for Quadrant {
+    fn from(value: usize) -> Self {
+        match value {
+            0 => Quadrant::I,
+            1 => Quadrant::II,
+            2 => Quadrant::III,
+            3 => Quadrant::IV,
+            _ => unreachable!(),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct QuadBoundary {
+    pub center: Vector2<f32>,
+    pub width: f32,
+}
+
+impl QuadBoundary {
+    pub fn new(center: Vector2<f32>, width: f32) -> Self {
+        Self {
+            center,
+            width, // Distance from center to edge
+        }
+    }
+
+    pub fn contains(&self, point: Vector2<f32>) -> bool {
+        !(point.x < self.center.x - self.width || point.x > self.center.x + self.width || point.y < self.center.y - self.width || point.y > self.center.y + self.width)
+    }
+
+    pub fn quadrant(&self, point: Vector2<f32>) -> Quadrant {
+        if point.y > self.center.y {
+            if point.x > self.center.x {
+                return Quadrant::I;
+            }
+            else {
+                return Quadrant::II;
+            }
+        }
+        else {
+            if point.x > self.center.x {
+                return Quadrant::IV;
+            }
+            else {
+                return Quadrant::III;
+            }
+        }
+    }
+
+    pub fn become_quadrant(mut self, quadrant: Quadrant) -> Self {
+        match quadrant {
+            Quadrant::I => {
+                self.width *= 0.5;
+                self.center.x += self.width;
+                self.center.y += self.width;
+            },
+            Quadrant::II => {
+                self.width *= 0.5;
+                self.center.x -= self.width;
+                self.center.y += self.width;
+            },
+            Quadrant::III => {
+                self.width *= 0.5;
+                self.center.x -= self.width;
+                self.center.y -= self.width;
+            },
+            Quadrant::IV => {
+                self.width *= 0.5;
+                self.center.x += self.width;
+                self.center.y -= self.width;
+            },
+        }
+
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct BarnesHutData {
+    pub center_of_mass: Vector2<f32>,
+    pub mass: f32,
+}
+
+impl BarnesHutData {
+    pub fn new(center_of_mass: Vector2<f32>, mass: f32) -> Self {
+        Self {
+            center_of_mass,
+            mass,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Quadnode { // TODO: Change to u16:s and bitshift by 2 to save 2 bits.
+    /// Index to the first child, the other three are contiguous
+    pub child: usize, // MAX if no children
+    pub data: usize, // MAX if no data
+}
+
+impl Default for Quadnode {
+    fn default() -> Self {
+        Self {
+            child: usize::MAX,
+            data: usize::MAX,
+        }
+    }
+}
+
+impl Quadnode {
+    pub fn get_child(&self) -> Option<usize> {
+        if self.is_leaf() {
+            return None;
+        }
+        Some(self.child)
+    }
+
+    pub fn get_data(&self) -> Option<usize> {
+        if self.is_empty() {
+            return None;
+        }
+        Some(self.data)
     }
 
     pub fn is_leaf(&self) -> bool {
-        self.children.len() == 0
+        self.child == usize::MAX
     }
 
     pub fn is_empty(&self) -> bool {
-        self.total_mass == 0.0
+        self.data == usize::MAX
+    }
+}
+
+/// Barnes-Hut quadtree implementation
+pub struct Quadtree {
+    pub nodes: Vec<Quadnode>,
+    pub data: Vec<BarnesHutData>,
+    pub boundary: QuadBoundary,
+}
+
+impl Quadtree {
+    pub fn new(boundary: QuadBoundary) -> Self {
+        Self {
+            nodes: vec![Quadnode::default(); 4],
+            data: Vec::new(),
+            boundary,
+        }
     }
 
-    fn subdivide(&mut self) {
-        let min: Point2<f32> = self.boundary.min;
-        let max: Point2<f32> = self.boundary.max;
-        let ctr: Point2<f32> = nalgebra::center(&min, &max);
-        self.children.push(Quadtree::new(Boundary::new(Point2::new(min.x, min.y), Point2::new(ctr.x, ctr.y))));
-        self.children.push(Quadtree::new(Boundary::new(Point2::new(ctr.x, min.y), Point2::new(max.x, ctr.y))));
-        self.children.push(Quadtree::new(Boundary::new(Point2::new(min.x, ctr.y), Point2::new(ctr.x, max.y))));
-        self.children.push(Quadtree::new(Boundary::new(Point2::new(ctr.x, ctr.y), Point2::new(max.x, max.y))));
+    fn subdivide(&mut self, node: usize) {
+        self.nodes[node].child = self.nodes.len();
+        self.nodes.push(Quadnode::default());
+        self.nodes.push(Quadnode::default()); // 2, 1
+        self.nodes.push(Quadnode::default()); // 3, 4
+        self.nodes.push(Quadnode::default());
     }
     
     /// An "unrecursed" version of the naive insert_recursive.
-    pub fn insert(&mut self, position: Point2<f32>, mass: f32) {
+    pub fn insert(&mut self, bodies: &[Body]) {
         puffin::profile_function!();
 
-        let mut stack = vec![self];
-        let mut positions = vec![position];
-        let mut masses = vec![mass];
+        for body in bodies {
 
-        loop {
-            if let Some(current) = stack.pop() {
-                let position = positions.pop().unwrap();
-                let mass = masses.pop().unwrap();
+            let mut boundary = self.boundary.clone();
 
-                if current.is_empty() {
-                    puffin::profile_scope!("is_empty");
-                    current.center_of_mass = position;
-                    current.total_mass = mass;
+            let quadrant = boundary.quadrant(body.pos);
+            let mut node = quadrant as usize;
+            boundary = boundary.become_quadrant(quadrant);
+
+            loop {
+                // Node is a branch
+                if let Some(child) = self.nodes[node].get_child() {
+                    let data = &mut self.data[self.nodes[node].data];
+                    data.center_of_mass = (data.center_of_mass * data.mass + body.pos * body.mass) / (data.mass + body.mass);
+                    data.mass += body.mass;
+
+                    let quadrant = boundary.quadrant(body.pos);
+
+                    boundary = boundary.become_quadrant(quadrant);
+                    node = child + quadrant as usize;
                 }
-                else if current.is_leaf() && !current.is_empty() {
-                    puffin::profile_scope!("is_leaf");
-        
-                    if position == current.center_of_mass {
-                        panic!("Adding duplicate point results in infinite octree.")
-                    }
-        
-                    current.subdivide();
+                // Node is a leaf with data
+                else if let Some(data) = self.nodes[node].get_data() {
+                    // Subdivide
+                    let child = self.nodes.len();
+                    self.subdivide(node);
 
-                    for child in current.children.iter_mut() {
-                        if child.boundary.contains(current.center_of_mass) {
-                            child.center_of_mass = current.center_of_mass;
-                            child.total_mass = current.total_mass;
-                            break;
-                        }
-                    }
-        
-                    for child in current.children.iter_mut() {
-                        if child.boundary.contains(position) {
-                            stack.push(child);
-                            positions.push(position);
-                            masses.push(mass);
-                            break;
-                        }
-                    }
-                    
-                    current.center_of_mass = (current.center_of_mass * current.total_mass + Vector2::from(position.coords) * mass) / (current.total_mass + mass);
-                    current.total_mass += mass;
+                    // Clone data to containing child node
+                    let child_data = self.data.len();
+                    self.data.push(self.data[data].clone());
+                    let quadrant = boundary.quadrant(self.data[data].center_of_mass);
+                    self.nodes[child + quadrant as usize].data = child_data;
+
+
+                    let quadrant = boundary.quadrant(body.pos);
+                    boundary = boundary.become_quadrant(quadrant);
+                    node = child + quadrant as usize;
+
+                    let data = &mut self.data[data];
+                    data.center_of_mass = (data.center_of_mass * data.mass + body.pos * body.mass) / (data.mass + body.mass);
+                    data.mass += body.mass;
                 }
-                else if !current.is_leaf() {
-                    puffin::profile_scope!("is_branch");
-        
-                    for child in current.children.iter_mut() {
-                        if child.boundary.contains(position) {
-                            stack.push(child);
-                            positions.push(position);
-                            masses.push(mass);
-                            break;
-                        }
-                    }
-        
-                    current.center_of_mass = (current.center_of_mass * current.total_mass + Vector2::from(position.coords) * mass) / (current.total_mass + mass);
-                    current.total_mass += mass;
+                // Node is an empty leaf
+                else {
+                    self.nodes[node].data = self.data.len();
+                    self.data.push(BarnesHutData::new(body.pos, body.mass));
+                    break;
                 }
             }
-            else {
-                return;
-            }
-        }
-    }
-
-    pub fn insert_recursive(&mut self, position: Point2<f32>, mass: f32) {
-        puffin::profile_function!();
-
-        if self.is_empty() {
-            puffin::profile_scope!("is_empty");
-            self.center_of_mass = position;
-            self.total_mass = mass;
-        }
-        else if self.is_leaf() && !self.is_empty() {
-            puffin::profile_scope!("is_leaf");
-
-            if position == self.center_of_mass {
-                panic!("Adding duplicate point results in infinite octree.")
-            }
-
-            self.subdivide();
-
-            for child in self.children.iter_mut() {
-                if child.boundary.contains(self.center_of_mass) {
-                    child.insert_recursive(self.center_of_mass, self.total_mass);
-                }
-                if child.boundary.contains(position) {
-                    child.insert_recursive(position, mass);
-                }
-            }
-            
-            self.center_of_mass = (self.center_of_mass * self.total_mass + Vector2::from(position.coords) * mass) / (self.total_mass + mass);
-            self.total_mass += mass;
-        }
-        else if !self.is_leaf() {
-            puffin::profile_scope!("is_branch");
-
-            self.children.iter_mut()
-                .find(|child| {
-                    child.boundary.contains(position)
-                }).unwrap() // Error if somehow no child contains the position
-                .insert_recursive(position, mass);
-
-            self.center_of_mass = (self.center_of_mass * self.total_mass + Vector2::from(position.coords) * mass) / (self.total_mass + mass);
-            self.total_mass += mass;
         }
     }
 
     /// An "unrecursed" version of the naive calculate_acceleration_recursive.
-    pub fn calculate_acceleration(&self, position: Point2<f32>, theta: f32) -> Vector2<f32> {
+    pub fn calculate_acceleration(&self, position: Vector2<f32>, theta: f32) -> Vector2<f32> {
         puffin::profile_function!();
 
-        let mut stack = vec![self];
-
-        let mut sum: Vector2<f32> = Vector2::zeros();
-
-        loop {
-            if let Some(current) = stack.pop() {
-                if current.is_leaf() || current.boundary.area() < (position - current.center_of_mass).norm_squared() * theta * theta {
-                    let m = current.total_mass;
-                    let d: Vector2<f32> = current.center_of_mass - position;
-                    let r = d.magnitude_squared().inv_sqrt();
-        
-                    sum += (m * r * r * r) * d;
-                } else {
-                    current.children.iter()
-                        .filter(|child| !child.is_empty() && position != child.center_of_mass)
-                        .for_each(|child| stack.push(child));
-                }
-            }
-            else {
-                return sum;
-            }
-        }
-    }
-
-    pub fn calculate_acceleration_recursive(&self, position: Point2<f32>, theta: f32) -> Vector2<f32> {
-        if self.is_empty() || position == self.center_of_mass {
+        if self.nodes.len() == 0 {
             return Vector2::zeros();
         }
 
-        if self.is_leaf() || self.boundary.area() < (position - self.center_of_mass).norm_squared() * theta * theta {
-            let m = self.total_mass;
-            let d: Vector2<f32> = self.center_of_mass - position;
-            let r = d.magnitude_squared().inv_sqrt();
+        let mut stack = vec![0, 1, 2, 3];
 
-            return (m * r * r * r) * d;
-        } else {
-            return self.children.iter()
-                .map(|child| {
-                    child.calculate_acceleration_recursive(position, theta)
-                }).sum();
+        let mut boundary_stack = vec![
+            self.boundary.clone().become_quadrant(Quadrant::I),
+            self.boundary.clone().become_quadrant(Quadrant::II),
+            self.boundary.clone().become_quadrant(Quadrant::III),
+            self.boundary.clone().become_quadrant(Quadrant::IV),
+        ];
+
+        let mut sum: Vector2<f32> = Vector2::zeros();
+
+        while let Some(node) = stack.pop() {
+            let boundary = boundary_stack.pop().unwrap();
+            let data = &self.data[self.nodes[node].data];
+
+            if self.nodes[node].is_leaf() || boundary.width * boundary.width * 4.0 < (position - data.center_of_mass).norm_squared() * theta * theta {
+                let m = data.mass;
+                let d: Vector2<f32> = data.center_of_mass - position;
+                let r = d.magnitude_squared().inv_sqrt();
+    
+                sum += (m * r * r * r) * d;
+            } else {
+                for i in 0..4 {
+                    let child = self.nodes[node].child + i;
+                    if !self.nodes[child].is_empty() && position != self.data[self.nodes[child].data].center_of_mass {
+                        stack.push(child);
+                        boundary_stack.push(boundary.clone().become_quadrant(i.into()));
+                    }
+                }
+            }
         }
+
+        sum
     }
 }

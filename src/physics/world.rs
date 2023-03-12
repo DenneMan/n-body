@@ -1,4 +1,4 @@
-use nalgebra::{Point2, Vector2};
+use nalgebra::Vector2;
 
 use crate::physics::{
     boundary::Boundary,
@@ -6,6 +6,8 @@ use crate::physics::{
     body::Body,
     grid::Grid,
 };
+
+use super::quadtree::QuadBoundary;
 
 pub struct World {
     pub bodies: Vec<Body>,
@@ -57,14 +59,34 @@ impl World {
     pub fn calculate_quadtree(&self) -> Quadtree {
         puffin::profile_function!();
 
-        let boundary = self.calculate_boundary();
+        let boundary = self.calculate_quad_boundary();
         let mut quadtree = Quadtree::new(boundary);
 
-        self.bodies.iter().for_each(|body| {
-            quadtree.insert(body.pos, body.mass);
-        });
+        quadtree.insert(&self.bodies);
 
         quadtree
+    }
+
+    pub fn calculate_quad_boundary(&self) -> QuadBoundary {
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+
+        self.bodies.iter()
+            .map(|body| body.pos)
+            .for_each(|position| {
+                min_x = min_x.min(position.x);
+                min_y = min_y.min(position.y);
+                max_x = max_x.max(position.x);
+                max_y = max_y.max(position.y);
+            });
+
+        let center = Vector2::new(min_x + max_x, min_y + max_y) * 0.5;
+
+        let width = (max_x - min_x).max(max_y - min_y) * 0.5;
+
+        QuadBoundary::new(center, width)
     }
 
     /// Always square
@@ -93,7 +115,7 @@ impl World {
         max_x += x_error;
         max_y += y_error;
 
-        Boundary::new(Point2::new(min_x, min_y), Point2::new(max_x, max_y))
+        Boundary::new(Vector2::new(min_x, min_y), Vector2::new(max_x, max_y))
     }
 
     pub fn find_largest_radius(&self) -> Option<f32> {
@@ -148,11 +170,11 @@ impl World {
                 let indices = grid.get3x3(x, y);
 
                 for i in 0..indices.len() {
-                    let p0: Point2<f32> = self.bodies[indices[i]].pos;
+                    let p0: Vector2<f32> = self.bodies[indices[i]].pos;
                     let r0 = self.bodies[indices[i]].radius;
 
                     for j in 0..i  {
-                        let p1: Point2<f32> = self.bodies[indices[j]].pos;
+                        let p1: Vector2<f32> = self.bodies[indices[j]].pos;
                         let r1 = self.bodies[indices[j]].radius;
                         if (p1 - p0).norm_squared() < (r0 + r1) * (r0 + r1) {
                             self.resolve(indices[i], indices[j]);

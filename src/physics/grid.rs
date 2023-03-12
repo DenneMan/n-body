@@ -1,4 +1,4 @@
-use nalgebra::Point2;
+use nalgebra::Vector2;
 
 
 use crate::physics::boundary::Boundary;
@@ -21,12 +21,12 @@ impl Grid {
         }
     }
 
-    pub fn insert(&mut self, index: usize, position: Point2<f32>) {
-        let pos: Point2<f32> = self.boundary.map(
+    pub fn insert(&mut self, index: usize, position: Vector2<f32>) {
+        let pos: Vector2<f32> = self.boundary.map(
             position, 
             &Boundary::new(
-                Point2::new(0.0, 0.0), 
-                Point2::new(self.resolution as f32, self.resolution as f32)
+                Vector2::new(0.0, 0.0), 
+                Vector2::new(self.resolution as f32, self.resolution as f32)
         ));
         let i = pos.x.floor() as usize;
         let j = pos.y.floor() as usize;

@@ -1,4 +1,4 @@
-use nalgebra::{Point2, Vector2};
+use nalgebra::Vector2;
 use pixels::{Pixels, SurfaceTexture};
 use winit::{window::Window, event_loop::EventLoop};
 use winit_input_helper::WinitInputHelper;
@@ -6,7 +6,7 @@ use winit_input_helper::WinitInputHelper;
 use crate::physics::{
     world::World, 
     boundary::Boundary, 
-    quadtree::Quadtree
+    quadtree::{Quadtree, Quadrant}
 };
 
 pub mod view;
@@ -208,7 +208,7 @@ impl Renderer {
     }
 
     pub fn draw_world(&mut self, world: &World) {
-        let screen_boundary = Boundary::new(Point2::new(0.0, 0.0), Point2::new(self.width as f32, self.height as f32));
+        let screen_boundary = Boundary::new(Vector2::new(0.0, 0.0), Vector2::new(self.width as f32, self.height as f32));
 
         for body in world.bodies.iter() {
             if self.view.boundary.pad(body.radius).contains(body.pos) {
@@ -224,70 +224,89 @@ impl Renderer {
         }
     }
 
-    pub fn world_to_screen(&self, point: Point2<f32>) -> Point2<f32> {
-        Point2::origin() + (point - self.view.boundary.min).component_div(&self.view.boundary.size()).component_mul(&Vector2::new(self.width as f32, self.height as f32))
+    pub fn world_to_screen(&self, point: Vector2<f32>) -> Vector2<f32> {
+        Vector2::zeros() + (point - self.view.boundary.min).component_div(&self.view.boundary.size()).component_mul(&Vector2::new(self.width as f32, self.height as f32))
     }
 
-    pub fn screen_to_world(&self, point: Point2<f32>) -> Point2<f32> {
-        self.view.boundary.min + (point - Point2::origin()).component_div(&Vector2::new(self.width as f32, self.height as f32)).component_mul(&self.view.boundary.size())
+    pub fn screen_to_world(&self, point: Vector2<f32>) -> Vector2<f32> {
+        self.view.boundary.min + (point - Vector2::zeros()).component_div(&Vector2::new(self.width as f32, self.height as f32)).component_mul(&self.view.boundary.size())
     }
 
-    pub fn draw_relative_quadtree(&mut self, quadtree: &Quadtree, position: Point2<f32>, theta: f32) {
-        let mut stack = vec![quadtree];
-        loop {
-            if let Some(current) = stack.pop() {
-                if current.is_leaf() || current.boundary.area() < (position - current.center_of_mass).magnitude_squared() * theta * theta {
-                    let p0: Point2<f32> = self.world_to_screen(position);
-                    let p1: Point2<f32> = self.world_to_screen(current.center_of_mass);
-                    let x0 = p0.x as i32; let x1 = p1.x as i32; let y0 = p0.y as i32; let y1 = p1.y as i32;
+    pub fn draw_relative_quadtree(&mut self, quadtree: &Quadtree, position: Vector2<f32>, theta: f32) {
+        if quadtree.nodes.len() == 0 {
+            return;
+        }
 
-                    self.draw_circle(p1.x as i32, p1.y as i32, 2, 0xff0000ff, true);
+        let mut stack = vec![0, 1, 2, 3];
 
-                    self.draw_line(x0, y0, x1, y1, 0x444444ff);
+        let mut boundary_stack = vec![
+            quadtree.boundary.clone().become_quadrant(Quadrant::I),
+            quadtree.boundary.clone().become_quadrant(Quadrant::II),
+            quadtree.boundary.clone().become_quadrant(Quadrant::III),
+            quadtree.boundary.clone().become_quadrant(Quadrant::IV),
+        ];
 
-                    let p0: Point2<f32> = self.world_to_screen(current.boundary.min);
-                    let p1: Point2<f32> = self.world_to_screen(current.boundary.max);
-                    let x0 = p0.x as i32; let x1 = p1.x as i32; let y0 = p0.y as i32; let y1 = p1.y as i32;
-    
-                    self.draw_rectangle(x0, x1, y0, y1, 0xffffffff);
-                } else {
-                    for child in current.children.iter() {
-                        if !child.is_empty() && position != child.center_of_mass {
-                            stack.push(child);
-                        }
+        while let Some(node) = stack.pop() {
+            let boundary = boundary_stack.pop().unwrap();
+            let data = &quadtree.data[quadtree.nodes[node].data];
+
+            if quadtree.nodes[node].is_leaf() || boundary.width * boundary.width * 4.0 < (position - data.center_of_mass).norm_squared() * theta * theta {
+                let p0: Vector2<f32> = self.world_to_screen(position);
+                let p1: Vector2<f32> = self.world_to_screen(data.center_of_mass);
+                let x0 = p0.x as i32; let x1 = p1.x as i32; let y0 = p0.y as i32; let y1 = p1.y as i32;
+
+                self.draw_circle(p1.x as i32, p1.y as i32, 2, 0xff0000ff, true);
+
+                self.draw_line(x0, y0, x1, y1, 0x444444ff);
+
+                let w: Vector2<f32> = Vector2::new(boundary.width, boundary.width);
+                let p0: Vector2<f32> = self.world_to_screen(boundary.center - w);
+                let p1: Vector2<f32> = self.world_to_screen(boundary.center + w);
+                let x0 = p0.x as i32; let x1 = p1.x as i32; let y0 = p0.y as i32; let y1 = p1.y as i32;
+
+                self.draw_rectangle(x0, x1, y0, y1, 0xffffffff);
+            } else {
+                for i in 0..4 {
+                    let child = quadtree.nodes[node].child + i;
+                    if !quadtree.nodes[child].is_empty() && position != quadtree.data[quadtree.nodes[child].data].center_of_mass {
+                        stack.push(child);
+                        boundary_stack.push(boundary.clone().become_quadrant(i.into()));
                     }
                 }
             }
-            else {
-                return;
-            }
         }
-
     }
 
     pub fn draw_quadtree(&mut self, quadtree: &Quadtree) {
-        let mut stack = vec![quadtree];
-    
-        loop {
-            if let Some(current) = stack.pop() {
-                if current.boundary.intersects(&self.view.boundary) {
-                    let p0: Point2<f32> = self.world_to_screen(current.boundary.min);
-                    let p1: Point2<f32> = self.world_to_screen(current.boundary.max);
-                    let x0 = p0.x as i32; let x1 = p1.x as i32; let y0 = p0.y as i32; let y1 = p1.y as i32;
-    
-                    self.draw_rectangle(x0, x1, y0, y1, 0xffffffff);
-                }
-                if !current.is_leaf() {
-                    for child in current.children.iter() {
-                        if !child.is_empty() {
-                            stack.push(child);
-                        }
-                    }
+        if quadtree.nodes.len() == 0 {
+            return;
+        }
+
+        let mut stack = vec![0, 1, 2, 3];
+
+        let mut boundary_stack = vec![
+            quadtree.boundary.clone().become_quadrant(Quadrant::I),
+            quadtree.boundary.clone().become_quadrant(Quadrant::II),
+            quadtree.boundary.clone().become_quadrant(Quadrant::III),
+            quadtree.boundary.clone().become_quadrant(Quadrant::IV),
+        ];
+
+        while let Some(node) = stack.pop() {
+            let boundary = boundary_stack.pop().unwrap();
+
+            if let Some(child) = quadtree.nodes[node].get_child() {
+                for i in 0..4 {
+                    stack.push(child + i);
+                    boundary_stack.push(boundary.clone().become_quadrant(i.into()));
                 }
             }
-            else {
-                return;
-            }
+
+            let w: Vector2<f32> = Vector2::new(boundary.width, boundary.width);
+            let p0: Vector2<f32> = self.world_to_screen(boundary.center - w);
+            let p1: Vector2<f32> = self.world_to_screen(boundary.center + w);
+            let x0 = p0.x as i32; let x1 = p1.x as i32; let y0 = p0.y as i32; let y1 = p1.y as i32;
+
+            self.draw_rectangle(x0, x1, y0, y1, 0xffffffff);
         }
     }
 }

@@ -5,7 +5,7 @@ use crate::{
     physics::{
         body::Body, 
         world::World, 
-        boundary::Boundary,
+        boundary::Boundary, quadtree::{Quadtree, QuadBoundary},
     }, 
     renderer::{
         Renderer,
@@ -14,7 +14,7 @@ use crate::{
 
 use std::{f32::consts::{TAU, PI}, time::Instant};
 
-use nalgebra::{Point2, Vector2};
+use nalgebra::Vector2;
 
 use rand::prelude::*;
 
@@ -31,9 +31,18 @@ use winit_input_helper::WinitInputHelper;
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 800;
 
-const WINDOW_BOUNDARY: Boundary = Boundary::new(Point2::new(0.0, 0.0), Point2::new(WIDTH as f32, HEIGHT as f32));
+const WINDOW_BOUNDARY: Boundary = Boundary::new(Vector2::new(0.0, 0.0), Vector2::new(WIDTH as f32, HEIGHT as f32));
 
 fn main() {
+    let boundary = QuadBoundary::new(Vector2::zeros(), 1.0);
+    let mut quadtree = Quadtree::new(boundary);
+
+    let bodies = vec![
+        Body::new(Vector2::new(0.5, 0.5), Vector2::zeros(), 10.0, 0.1),
+    ];
+
+    quadtree.insert(&bodies);
+
     puffin::set_scopes_on(true); // Enable puffin (profiler)
 
     let event_loop = EventLoop::new();
@@ -50,7 +59,7 @@ fn main() {
     let mut renderer = Renderer::new(window, &event_loop);
 
     world.insert(Body::new(
-        Point2::origin(),
+        Vector2::zeros(),
         Vector2::zeros(),
         10000000.0,
         50.0,
@@ -66,7 +75,7 @@ fn main() {
         let mut radius: f32 = rng.gen_range(0.0..1.0);
         radius = radius.powi(3) * 10.0 + 10.0;
         world.insert(Body::new(
-            Point2::new((TAU / n * i).sin(), (TAU / n * i).cos()) * 1000.0 * distance,
+            Vector2::new((TAU / n * i).sin(), (TAU / n * i).cos()) * 1000.0 * distance,
             Vector2::new((TAU / n * i + PI * 0.5).sin(), (TAU / n * i + PI * 0.5).cos()) * 100.0 / distance.cbrt(),
             radius * radius * radius * 10.0,
             radius,
@@ -129,7 +138,7 @@ fn main() {
                             renderer.draw_quadtree(&quadtree);
                         },
                         ViewState::Follow(body, _) => {
-                            let position: Point2<f32> = world.bodies[body].pos;
+                            let position: Vector2<f32> = world.bodies[body].pos;
                             renderer.draw_relative_quadtree(&quadtree, position, world.theta);
                         },
                     }

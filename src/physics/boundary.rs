@@ -1,20 +1,20 @@
-use nalgebra::{Point2, Vector2};
+use nalgebra::Vector2;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Boundary {
-    pub min: Point2<f32>,
-    pub max: Point2<f32>,
+    pub min: Vector2<f32>,
+    pub max: Vector2<f32>,
 }
 
 impl Boundary {
-    pub const fn new(min: Point2<f32>, max: Point2<f32>) -> Self {
+    pub const fn new(min: Vector2<f32>, max: Vector2<f32>) -> Self {
         Self {
             min, 
             max,
         }
     }
 
-    pub fn contains(&self, position: Point2<f32>) -> bool {
+    pub fn contains(&self, position: Vector2<f32>) -> bool {
         position >= self.min && position <= self.max
     }
 
@@ -38,7 +38,7 @@ impl Boundary {
         self.width() * self.height()
     }
 
-    pub fn map(&self, point: Point2<f32>, to: &Self) -> Point2<f32> {
+    pub fn map(&self, point: Vector2<f32>, to: &Self) -> Vector2<f32> {
         to.min + (point - self.min).component_div(&self.size()).component_mul(&to.size())
     }
 
