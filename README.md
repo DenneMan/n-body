@@ -23,4 +23,4 @@ The gravitational constant is 1. Otherwise masses (or timestep) would have to be
 - Press Space to toggle pausing of the simulation.
 - Left click on a body to focus/track said body.
 - Middle click and drag to move around.
-- Scroll to zoom to where the cursor is places.
+- Scroll to zoom.
