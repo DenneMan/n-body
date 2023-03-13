@@ -170,8 +170,7 @@ impl Quadtree {
         self.nodes.push(Quadnode::default());
     }
     
-    /// An "unrecursed" version of the naive insert_recursive.
-    pub fn insert(&mut self, bodies: &[Body]) {
+    pub fn insert(&mut self, bodies: &[Body]) { // TODO: try not dividing by mass and then do a final pass over all quads in the end. 
         puffin::profile_function!();
 
         for body in bodies {
@@ -206,14 +205,15 @@ impl Quadtree {
                     let quadrant = boundary.quadrant(self.data[data].center_of_mass);
                     self.nodes[child + quadrant as usize].data = child_data;
 
-
-                    let quadrant = boundary.quadrant(body.pos);
-                    boundary = boundary.become_quadrant(quadrant);
-                    node = child + quadrant as usize;
-
+                    // Update current node with body
                     let data = &mut self.data[data];
                     data.center_of_mass = (data.center_of_mass * data.mass + body.pos * body.mass) / (data.mass + body.mass);
                     data.mass += body.mass;
+
+                    // Insert current body to containing node
+                    let quadrant = boundary.quadrant(body.pos);
+                    boundary = boundary.become_quadrant(quadrant);
+                    node = child + quadrant as usize;
                 }
                 // Node is an empty leaf
                 else {
