@@ -3,13 +3,10 @@ mod renderer;
 
 use crate::{
     physics::{
-        body::Body, 
-        world::World, 
-        boundary::Boundary, quadtree::{Quadtree, QuadBoundary},
+        body::Body,
+        world::World,
     }, 
-    renderer::{
-        Renderer,
-    },
+    renderer::Renderer,
 };
 
 use std::{f32::consts::{TAU, PI}, time::Instant};
@@ -31,18 +28,7 @@ use winit_input_helper::WinitInputHelper;
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 800;
 
-const WINDOW_BOUNDARY: Boundary = Boundary::new(Vector2::new(0.0, 0.0), Vector2::new(WIDTH as f32, HEIGHT as f32));
-
 fn main() {
-    let boundary = QuadBoundary::new(Vector2::zeros(), 1.0);
-    let mut quadtree = Quadtree::new(boundary);
-
-    let bodies = vec![
-        Body::new(Vector2::new(0.5, 0.5), Vector2::zeros(), 10.0, 0.1),
-    ];
-
-    quadtree.insert(&bodies);
-
     puffin::set_scopes_on(true); // Enable puffin (profiler)
 
     let event_loop = EventLoop::new();

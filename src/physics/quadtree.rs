@@ -7,22 +7,23 @@ use crate::physics::{
 use super::body::Body;
 
 #[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum Quadrant {
-    I   = 0, // North-east
-    II  = 1, // North-west
-    III = 2, // South-west
-    IV  = 3, // South-east
+    NW = 0, // North-east
+    NE = 1, // North-west
+    SW = 2, // South-west
+    SE = 3, // South-east
+}
+
+impl From<u8> for Quadrant {
+    fn from(value: u8) -> Self {
+        unsafe { std::mem::transmute(value) }
+    }
 }
 
 impl From<usize> for Quadrant {
     fn from(value: usize) -> Self {
-        match value {
-            0 => Quadrant::I,
-            1 => Quadrant::II,
-            2 => Quadrant::III,
-            3 => Quadrant::IV,
-            _ => unreachable!(),
-        }
+        unsafe { std::mem::transmute(value as u8) }
     }
 }
 
@@ -45,47 +46,16 @@ impl QuadBoundary {
     }
 
     pub fn quadrant(&self, point: Vector2<f32>) -> Quadrant {
-        if point.y > self.center.y {
-            if point.x > self.center.x {
-                return Quadrant::I;
-            }
-            else {
-                return Quadrant::II;
-            }
-        }
-        else {
-            if point.x > self.center.x {
-                return Quadrant::IV;
-            }
-            else {
-                return Quadrant::III;
-            }
-        }
+        let bits = (((point.y < self.center.y) as u8) << 1) | (point.x >= self.center.x) as u8;
+        bits.into()
     }
 
     pub fn become_quadrant(mut self, quadrant: Quadrant) -> Self {
-        match quadrant {
-            Quadrant::I => {
-                self.width *= 0.5;
-                self.center.x += self.width;
-                self.center.y += self.width;
-            },
-            Quadrant::II => {
-                self.width *= 0.5;
-                self.center.x -= self.width;
-                self.center.y += self.width;
-            },
-            Quadrant::III => {
-                self.width *= 0.5;
-                self.center.x -= self.width;
-                self.center.y -= self.width;
-            },
-            Quadrant::IV => {
-                self.width *= 0.5;
-                self.center.x += self.width;
-                self.center.y -= self.width;
-            },
-        }
+        let bits = quadrant as u8;
+        self.width *= 0.5;
+
+        self.center.x += -self.width + self.width * ((bits & 0b1) << 1) as f32;
+        self.center.y +=  self.width - self.width * (   bits & 0b10   ) as f32;
 
         self
     }
@@ -93,14 +63,16 @@ impl QuadBoundary {
 
 #[derive(Clone)]
 pub struct BarnesHutData {
-    pub center_of_mass: Vector2<f32>,
+    /// The center of mass for a branch
+    pub pos: Vector2<f32>,
+    /// The total mass for a branch
     pub mass: f32,
 }
 
 impl BarnesHutData {
-    pub fn new(center_of_mass: Vector2<f32>, mass: f32) -> Self {
+    pub fn new(pos: Vector2<f32>, mass: f32) -> Self {
         Self {
-            center_of_mass,
+            pos,
             mass,
         }
     }
@@ -165,12 +137,12 @@ impl Quadtree {
     fn subdivide(&mut self, node: usize) {
         self.nodes[node].child = self.nodes.len();
         self.nodes.push(Quadnode::default());
-        self.nodes.push(Quadnode::default()); // 2, 1
-        self.nodes.push(Quadnode::default()); // 3, 4
+        self.nodes.push(Quadnode::default());
+        self.nodes.push(Quadnode::default());
         self.nodes.push(Quadnode::default());
     }
     
-    pub fn insert(&mut self, bodies: &[Body]) { // TODO: try not dividing by mass and then do a final pass over all quads in the end. 
+    pub fn insert(&mut self, bodies: &[Body]) { // TODO: try not dividing by mass and then do a final pass over all data in the end. 
         puffin::profile_function!();
 
         for body in bodies {
@@ -184,12 +156,12 @@ impl Quadtree {
             loop {
                 // Node is a branch
                 if let Some(child) = self.nodes[node].get_child() {
+                    // Update current node with body
                     let data = &mut self.data[self.nodes[node].data];
-                    data.center_of_mass = (data.center_of_mass * data.mass + body.pos * body.mass) / (data.mass + body.mass);
+                    data.pos = (data.pos * data.mass + body.pos * body.mass) / (data.mass + body.mass);
                     data.mass += body.mass;
 
                     let quadrant = boundary.quadrant(body.pos);
-
                     boundary = boundary.become_quadrant(quadrant);
                     node = child + quadrant as usize;
                 }
@@ -202,12 +174,12 @@ impl Quadtree {
                     // Clone data to containing child node
                     let child_data = self.data.len();
                     self.data.push(self.data[data].clone());
-                    let quadrant = boundary.quadrant(self.data[data].center_of_mass);
+                    let quadrant = boundary.quadrant(self.data[data].pos);
                     self.nodes[child + quadrant as usize].data = child_data;
 
                     // Update current node with body
                     let data = &mut self.data[data];
-                    data.center_of_mass = (data.center_of_mass * data.mass + body.pos * body.mass) / (data.mass + body.mass);
+                    data.pos = (data.pos * data.mass + body.pos * body.mass) / (data.mass + body.mass);
                     data.mass += body.mass;
 
                     // Insert current body to containing node
@@ -225,7 +197,6 @@ impl Quadtree {
         }
     }
 
-    /// An "unrecursed" version of the naive calculate_acceleration_recursive.
     pub fn calculate_acceleration(&self, position: Vector2<f32>, theta: f32) -> Vector2<f32> {
         puffin::profile_function!();
 
@@ -233,33 +204,35 @@ impl Quadtree {
             return Vector2::zeros();
         }
 
-        let mut stack = vec![0, 1, 2, 3];
+        let mut stack = Vec::new();
+        let mut width_stack = Vec::new();
 
-        let mut boundary_stack = vec![
-            self.boundary.clone().become_quadrant(Quadrant::I),
-            self.boundary.clone().become_quadrant(Quadrant::II),
-            self.boundary.clone().become_quadrant(Quadrant::III),
-            self.boundary.clone().become_quadrant(Quadrant::IV),
-        ];
+        for i in 0..4 {
+            if !self.nodes[i].is_empty() && position != self.data[self.nodes[i].data].pos {
+                stack.push(i);
+                width_stack.push(self.boundary.width);
+            }
+        }
 
         let mut sum: Vector2<f32> = Vector2::zeros();
 
         while let Some(node) = stack.pop() {
-            let boundary = boundary_stack.pop().unwrap();
-            let data = &self.data[self.nodes[node].data];
+            let width = width_stack.pop().unwrap();
+            let node = &self.nodes[node];
+            let data = &self.data[node.data];
 
-            if self.nodes[node].is_leaf() || boundary.width * boundary.width * 4.0 < (position - data.center_of_mass).norm_squared() * theta * theta {
+            if node.is_leaf() || width * width < (position - data.pos).magnitude_squared() * theta * theta {
                 let m = data.mass;
-                let d: Vector2<f32> = data.center_of_mass - position;
+                let d: Vector2<f32> = data.pos - position;
                 let r = d.magnitude_squared().inv_sqrt();
     
                 sum += (m * r * r * r) * d;
             } else {
                 for i in 0..4 {
-                    let child = self.nodes[node].child + i;
-                    if !self.nodes[child].is_empty() && position != self.data[self.nodes[child].data].center_of_mass {
+                    let child = node.child + i;
+                    if !self.nodes[child].is_empty() && position != self.data[self.nodes[child].data].pos {
                         stack.push(child);
-                        boundary_stack.push(boundary.clone().become_quadrant(i.into()));
+                        width_stack.push(width * 0.5);
                     }
                 }
             }

@@ -233,6 +233,8 @@ impl Renderer {
     }
 
     pub fn draw_relative_quadtree(&mut self, quadtree: &Quadtree, position: Vector2<f32>, theta: f32) {
+        puffin::profile_function!();
+
         if quadtree.nodes.len() == 0 {
             return;
         }
@@ -240,19 +242,19 @@ impl Renderer {
         let mut stack = vec![0, 1, 2, 3];
 
         let mut boundary_stack = vec![
-            quadtree.boundary.clone().become_quadrant(Quadrant::I),
-            quadtree.boundary.clone().become_quadrant(Quadrant::II),
-            quadtree.boundary.clone().become_quadrant(Quadrant::III),
-            quadtree.boundary.clone().become_quadrant(Quadrant::IV),
+            quadtree.boundary.clone().become_quadrant(Quadrant::NW),
+            quadtree.boundary.clone().become_quadrant(Quadrant::NE),
+            quadtree.boundary.clone().become_quadrant(Quadrant::SW),
+            quadtree.boundary.clone().become_quadrant(Quadrant::SE),
         ];
 
         while let Some(node) = stack.pop() {
             let boundary = boundary_stack.pop().unwrap();
             let data = &quadtree.data[quadtree.nodes[node].data];
 
-            if quadtree.nodes[node].is_leaf() || boundary.width * boundary.width * 4.0 < (position - data.center_of_mass).norm_squared() * theta * theta {
+            if quadtree.nodes[node].is_leaf() || boundary.width * boundary.width * 4.0 < (position - data.pos).norm_squared() * theta * theta {
                 let p0: Vector2<f32> = self.world_to_screen(position);
-                let p1: Vector2<f32> = self.world_to_screen(data.center_of_mass);
+                let p1: Vector2<f32> = self.world_to_screen(data.pos);
                 let x0 = p0.x as i32; let x1 = p1.x as i32; let y0 = p0.y as i32; let y1 = p1.y as i32;
 
                 self.draw_circle(p1.x as i32, p1.y as i32, 2, 0xff0000ff, true);
@@ -268,7 +270,7 @@ impl Renderer {
             } else {
                 for i in 0..4 {
                     let child = quadtree.nodes[node].child + i;
-                    if !quadtree.nodes[child].is_empty() && position != quadtree.data[quadtree.nodes[child].data].center_of_mass {
+                    if !quadtree.nodes[child].is_empty() && position != quadtree.data[quadtree.nodes[child].data].pos {
                         stack.push(child);
                         boundary_stack.push(boundary.clone().become_quadrant(i.into()));
                     }
@@ -278,6 +280,8 @@ impl Renderer {
     }
 
     pub fn draw_quadtree(&mut self, quadtree: &Quadtree) {
+        puffin::profile_function!();
+
         if quadtree.nodes.len() == 0 {
             return;
         }
@@ -285,10 +289,10 @@ impl Renderer {
         let mut stack = vec![0, 1, 2, 3];
 
         let mut boundary_stack = vec![
-            quadtree.boundary.clone().become_quadrant(Quadrant::I),
-            quadtree.boundary.clone().become_quadrant(Quadrant::II),
-            quadtree.boundary.clone().become_quadrant(Quadrant::III),
-            quadtree.boundary.clone().become_quadrant(Quadrant::IV),
+            quadtree.boundary.clone().become_quadrant(Quadrant::NW),
+            quadtree.boundary.clone().become_quadrant(Quadrant::NE),
+            quadtree.boundary.clone().become_quadrant(Quadrant::SW),
+            quadtree.boundary.clone().become_quadrant(Quadrant::SE),
         ];
 
         while let Some(node) = stack.pop() {
